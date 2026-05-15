@@ -1,0 +1,45 @@
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List
+from FlagEmbedding import BGEM3FlagModel
+import torch
+import os
+
+app = FastAPI(title="BGE-M3 Embedding Service")
+model = None
+
+MODEL_PATH = os.environ.get("MODEL_PATH", "/root/.cache/huggingface/hub/BAAI/bge-m3")
+
+@app.on_event("startup")
+async def load_model():
+    global model
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = BGEM3FlagModel(MODEL_PATH, use_fp16=(device=="cuda"), device=device)
+
+class EmbeddingRequest(BaseModel):
+    sentences: List[str]
+    max_length: int = 8192
+    batch_size: int = 12
+    return_sparse: bool = False
+
+@app.post("/embed")
+async def get_embeddings(request: EmbeddingRequest):
+    output = model.encode(
+        request.sentences,
+        batch_size=request.batch_size,
+        max_length=request.max_length,
+        return_dense=True,
+        return_sparse=request.return_sparse
+    )
+    result = {"dense_embeddings": output["dense_vecs"].tolist()}
+    if request.return_sparse:
+        result["sparse_embeddings"] = output["lexical_weights"]
+    return result
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

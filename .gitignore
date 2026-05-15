@@ -1,0 +1,28 @@
+# 环境变量（含密钥）
+.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Next.js / Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# 运行时数据
+uploads/
+schemas/
+volumes/
+
+# Claude Code
+.claude/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
