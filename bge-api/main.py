@@ -36,6 +36,22 @@ async def get_embeddings(request: EmbeddingRequest):
         result["sparse_embeddings"] = output["lexical_weights"]
     return result
 
+class RerankRequest(BaseModel):
+    query: str
+    documents: List[str]
+
+@app.post("/rerank")
+async def rerank_documents(request: RerankRequest):
+    pairs = [[request.query, doc] for doc in request.documents]
+    result = model.compute_score(pairs)
+    # use combined colbert+sparse+dense score for best accuracy
+    scores = result.get("colbert+sparse+dense", result["dense"])
+    ranked = sorted(
+        [{"index": i, "score": float(s)} for i, s in enumerate(scores)],
+        key=lambda x: x["score"], reverse=True
+    )
+    return {"ranked": ranked}
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}

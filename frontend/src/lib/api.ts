@@ -47,8 +47,27 @@ export async function fetchEntities(params?: {
   return resp.json();
 }
 
+export async function deletePaper(paperId: string) {
+  const resp = await fetch(`${BASE}/papers/${paperId}`, { method: "DELETE" });
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const body = await resp.json();
+      detail = body.detail || "";
+    } catch {}
+    throw new Error(detail || `删除失败 (HTTP ${resp.status})`);
+  }
+  return resp.json();
+}
+
+export async function runSchemaConvergence() {
+  const resp = await fetch(`${BASE}/entities/converge`, { method: "POST" });
+  if (!resp.ok) throw new Error("Convergence failed");
+  return resp.json();
+}
+
 export async function visualizeQuery(query: string) {
-  const resp = await fetch(`${BASE}/visualize`, {
+  const resp = await fetch("http://localhost:8080/api/visualize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),

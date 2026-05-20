@@ -3,7 +3,6 @@ from backend.models.database import get_db, Paper
 from backend.services.pdf_service import save_upload, compute_paper_id
 from backend.services.ingestion import ingest_pdf
 from backend.config import get_settings
-import os
 
 router = APIRouter(prefix="/api", tags=["upload"])
 
@@ -31,14 +30,24 @@ async def upload_pdf(
 
 
 async def _process_paper(paper_id: str, file_path: str):
+    from backend.services.extract_service import run_extraction
+
     result = await ingest_pdf(file_path)
     async for db in get_db():
         paper = await db.get(Paper, paper_id)
         if paper:
-            paper.title = result["title"]
+            doc_title = (result.get("title") or "").strip()
+            if doc_title and len(doc_title) > len(paper.title):
+                paper.title = doc_title
             paper.full_text = result["full_text"]
             paper.status = "ingested"
             await db.commit()
         break
-    if os.path.exists(file_path):
-        os.remove(file_path)
+
+    # auto-trigger entity extraction after ingestion
+    if result.get("full_text"):
+        try:
+            await run_extraction(paper_id, result["full_text"])
+        except Exception:
+            pass
+    # keep PDF file on disk for reference

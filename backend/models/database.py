@@ -48,7 +48,7 @@ class Paper(Base):
 class Entity(Base):
     __tablename__ = "entities"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    paper_id: Mapped[str] = mapped_column(String(64), ForeignKey("papers.id"), nullable=False)
+    paper_id: Mapped[str] = mapped_column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(256), nullable=False)
     attributes: Mapped[dict] = mapped_column(JSON, nullable=False)
     source_span: Mapped[str] = mapped_column(String(256), nullable=True)
@@ -57,7 +57,7 @@ class Entity(Base):
 class EntitySchema(Base):
     __tablename__ = "entity_schemas"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    paper_id: Mapped[str] = mapped_column(String(64), ForeignKey("papers.id"), nullable=False)
+    paper_id: Mapped[str] = mapped_column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
     schema_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

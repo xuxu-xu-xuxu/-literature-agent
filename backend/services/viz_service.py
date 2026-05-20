@@ -51,14 +51,52 @@ async def generate_chart(query: str) -> dict:
 
     async for db in get_db():
         result = await db.execute(text(plan["sql"]))
-        columns = result.keys()
+        columns = list(result.keys())
         rows = [dict(zip(columns, row)) for row in result.fetchall()]
         break
+
+    # Inject real data into ECharts option
+    option = plan.get("echarts_option", {})
+    _inject_data(option, rows, columns)
+    option = _ensure_dark_theme(option)
 
     return {
         "chart_type": plan["chart_type"],
         "title": plan["title"],
         "data": rows,
-        "echarts_option": plan["echarts_option"],
+        "echarts_option": option,
         "explanation": plan.get("explanation", ""),
     }
+
+
+def _inject_data(option: dict, rows: list[dict], columns: list[str]) -> None:
+    if not rows or not columns:
+        return
+    cat_col = columns[0]   # first column = category/label
+    val_col = columns[1] if len(columns) > 1 else columns[0]  # second = value
+
+    try:
+        series = option.get("series", [])
+        if series:
+            series[0]["data"] = [_row_to_series_item(r, cat_col, val_col) for r in rows]
+        xaxis = option.get("xAxis", {})
+        if isinstance(xaxis, dict):
+            xaxis["data"] = [r[cat_col] for r in rows]
+        yaxis = option.get("yAxis", {})
+    except Exception:
+        pass
+
+
+def _row_to_series_item(row: dict, cat_col: str, val_col: str):
+    try:
+        return float(row[val_col])
+    except (ValueError, TypeError):
+        return str(row[val_col])
+
+
+def _ensure_dark_theme(option: dict) -> dict:
+    option.setdefault("backgroundColor", "transparent")
+    option.setdefault("textStyle", {"color": "#94a3b8"})
+    option.setdefault("legend", {"textStyle": {"color": "#94a3b8"}})
+    option.setdefault("tooltip", {})
+    return option

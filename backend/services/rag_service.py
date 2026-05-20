@@ -10,11 +10,13 @@ QUERY_REWRITE_PROMPT = """你是一个材料科学文献检索专家。将用户
 改写查询:"""
 
 RAG_SYSTEM_PROMPT = """你是一个材料科学文献助手。请根据提供的文献片段回答用户的问题。
+
 必须遵守以下规则：
-1. 每个事实性陈述后标注来源：[作者, 年份, §章节]
-2. 如果文献片段中找不到相关信息，明确说"当前文献库中未找到相关信息"
-3. 禁止编造任何文献中不存在的数据或结论
-4. 回答结尾列出引用的文献列表"""
+1. 回答要详细、具体、有深度。不要只给一句话概括，要展开论述
+2. 每个事实性陈述后标注来源引用：[文献N]
+3. 如果文献片段中找不到相关信息，明确说"当前文献库中未找到该信息"
+4. 禁止编造任何文献中不存在的数据或结论
+5. 回答末尾不需要列出参考文献，系统会自动追加"""
 
 
 async def rewrite_query(query: str) -> str:
@@ -25,17 +27,47 @@ async def rewrite_query(query: str) -> str:
 
 async def generate_answer_stream(query: str, conversation_history: list[dict] = None):
     from backend.services.rag_search import hybrid_search
+    from backend.models.database import get_db, Paper
 
     rewritten = await rewrite_query(query)
-    docs = await hybrid_search(rewritten, top_k=20)
+    docs = await hybrid_search(rewritten)
 
+    # enrich docs with paper titles from DB
+    title_cache = {}
+    for doc in docs:
+        pid = doc.get("paper_id")
+        if pid and pid not in title_cache:
+            title_cache[pid] = doc.get("title", "")
+            if not title_cache[pid]:
+                async for db in get_db():
+                    paper = await db.get(Paper, pid)
+                    if paper:
+                        title_cache[pid] = paper.title
+                    break
+
+    # build context with numbered references, dedup by paper title
     context_parts = []
-    for i, doc in enumerate(docs):
-        ref = f"[{i+1}]"
-        paper_info = f"来源{ref}: {doc.get('title', '')} - {doc.get('heading', '')}"
-        context_parts.append(f"{paper_info}\n{doc['text']}")
+    cited_docs = {}
+    seen_titles = {}
+    ref_num = 0
+    for doc in docs:
+        pid = doc.get("paper_id", "")
+        title = title_cache.get(pid, doc.get("title", "未知文献"))
+        text = doc.get("text", "")
+        heading = doc.get("heading", "")
+        if not text:
+            continue
+        if title not in seen_titles:
+            ref_num += 1
+            seen_titles[title] = ref_num
+        num = seen_titles[title]
+        cited_docs[num] = title
+        prefix = f"[文献{num}] 《{title}》"
+        if heading and heading != title:
+            prefix += f" §{heading}"
+        context_parts.append(f"{prefix}\n{text}")
 
-    context = "\n\n---\n\n".join(context_parts[:5])
+    context = "\n\n---\n\n".join(context_parts[:10])
 
     messages = [{"role": "system", "content": RAG_SYSTEM_PROMPT}]
     if conversation_history:
@@ -46,9 +78,7 @@ async def generate_answer_stream(query: str, conversation_history: list[dict] = 
     async for chunk in llm.chat_stream(messages):
         yield chunk
 
-    yield "\n\n---\n**参考文献:**\n"
-    for i, doc in enumerate(docs[:5]):
-        title = doc.get("title", "Unknown")
-        heading = doc.get("heading", "")
-        paper_id = doc.get("paper_id", "")
-        yield f"\n[{i+1}] {title} - {heading} (ID: {paper_id})"
+    if cited_docs:
+        yield "\n\n---\n**参考文献：**\n"
+        for num, title in cited_docs.items():
+            yield f"\n[文献{num}] 《{title}》"

@@ -13,7 +13,9 @@ def init_milvus():
     settings = get_settings()
     connections.connect(alias="default", host=settings.milvus_host, port=settings.milvus_port)
     if utility.has_collection(COLLECTION_NAME):
-        return Collection(COLLECTION_NAME)
+        col = Collection(COLLECTION_NAME)
+        col.load()
+        return col
     fields = [
         FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
         FieldSchema(name="paper_id", dtype=DataType.VARCHAR, max_length=64),

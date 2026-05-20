@@ -1,22 +1,25 @@
-from backend.services.embedding import embed_single
+from backend.services.embedding import embed_single, rerank
 from backend.services.ingestion import init_milvus, init_es, COLLECTION_NAME
 from collections import defaultdict
 
-async def hybrid_search(query: str, top_k: int = 20) -> list[dict]:
+RECALL_K = 30
+RERANK_K = 10
+ENABLE_RERANK = True
+
+async def hybrid_search(query: str, top_k: int = RERANK_K) -> list[dict]:
     query_vec = await embed_single(query)
 
     col = init_milvus()
-    col.load()
     search_params = {"metric_type": "COSINE", "params": {"nprobe": 16}}
     milvus_results = col.search(
         data=[query_vec], anns_field="embedding", param=search_params,
-        limit=top_k, output_fields=["paper_id", "text", "heading", "chunk_index"]
+        limit=RECALL_K, output_fields=["paper_id", "text", "heading", "chunk_index"]
     )
 
     es = init_es()
     es_results = es.search(index="papers", body={
         "query": {"match": {"full_text": {"query": query, "operator": "or"}}},
-        "size": top_k,
+        "size": RECALL_K,
         "_source": ["paper_id", "title", "abstract"],
     })
 
@@ -43,4 +46,15 @@ async def hybrid_search(query: str, top_k: int = 20) -> list[dict]:
         }
 
     ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-    return [docs[doc_id] for doc_id, _ in ranked[:top_k]]
+    candidates = [docs[doc_id] for doc_id, _ in ranked[:RECALL_K]]
+
+    # Rerank with BGE-M3 (fallback to original order if rerank fails)
+    if ENABLE_RERANK and len(candidates) > top_k:
+        try:
+            doc_texts = [d["text"] for d in candidates]
+            ranked_indices = await rerank(query, doc_texts, top_k=top_k)
+            candidates = [candidates[r["index"]] for r in ranked_indices]
+        except Exception:
+            pass  # fall back to RRF order
+
+    return candidates[:top_k]

@@ -66,15 +66,13 @@ services:
       - "8000:8000"
     volumes:
       - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
-    # 如需启用 GPU，请先确保 WSL2 中已安装 NVIDIA Container Toolkit，
-    # 然后取消下面三行的注释，并注释掉 build 行（需使用 GPU 基础镜像）
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # ========== PostgreSQL ==========
   postgres:

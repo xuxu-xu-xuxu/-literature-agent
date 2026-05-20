@@ -26,3 +26,20 @@ async def embed_sentences(sentences: list[str], return_sparse: bool = False) -> 
 async def embed_single(text: str) -> list[float]:
     result = await embed_sentences([text])
     return result["dense_embeddings"][0]
+
+async def rerank(query: str, documents: list[str], top_k: int = 10) -> list[dict]:
+    settings = get_settings()
+    url = settings.bge_embed_url.replace("/embed", "/rerank")
+    docs = [d[:1024] for d in documents]
+    ranked = []
+    async with httpx.AsyncClient(timeout=120) as client:
+        for i in range(0, len(docs), 15):
+            batch = docs[i : i + 15]
+            resp = await client.post(url, json={"query": query, "documents": batch})
+            resp.raise_for_status()
+            result = resp.json()
+            for item in result["ranked"]:
+                item["index"] += i
+                ranked.append(item)
+    ranked.sort(key=lambda x: x["score"], reverse=True)
+    return ranked[:top_k]

@@ -2,7 +2,6 @@
 import { Search, X, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { PaperCard } from "./paper-card";
 
 export interface Paper {
@@ -16,9 +15,11 @@ export interface Paper {
 interface Props {
   onClose: () => void;
   papers?: Paper[];
+  onDelete: (id: string) => void;
+  onExtract: (id: string) => void;
 }
 
-export function LiteratureSidebar({ onClose, papers = [] }: Props) {
+export function LiteratureSidebar({ onClose, papers = [], onDelete, onExtract }: Props) {
   return (
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-slate-800 flex items-center justify-between">
@@ -35,14 +36,14 @@ export function LiteratureSidebar({ onClose, papers = [] }: Props) {
           <Input placeholder="搜索文献..." className="pl-8 h-9 text-sm bg-slate-900 border-slate-700" />
         </div>
       </div>
-      <ScrollArea className="flex-1 p-2">
+      <div className="flex-1 overflow-y-auto p-2">
         {papers.map((paper) => (
-          <PaperCard key={paper.id} paper={paper} />
+          <PaperCard key={paper.id} paper={paper} onDelete={onDelete} onExtract={onExtract} />
         ))}
         {papers.length === 0 && (
           <p className="text-sm text-slate-500 text-center py-8">暂无文献，请先上传 PDF</p>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }

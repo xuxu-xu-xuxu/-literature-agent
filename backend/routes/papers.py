@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from backend.models.database import get_db, Paper
-from backend.models.schemas import PaperOut, PaperDetailOut, PaperListParams
+import os
+import logging
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select, func
+from backend.models.database import get_db, Paper, Entity, EntitySchema, EntitySynonym
+from backend.models.schemas import PaperOut, PaperDetailOut, PaperListParams
+from backend.services.ingestion import init_milvus, init_es
+
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["papers"])
 
 
@@ -49,7 +53,56 @@ async def delete_paper(paper_id: str):
         paper = await db.get(Paper, paper_id)
         if not paper:
             raise HTTPException(status_code=404, detail="Paper not found")
+        file_path = paper.file_path
+
+        # Delete related entities and schemas first (FK constraint)
+        schemas = (await db.execute(
+            select(EntitySchema).where(EntitySchema.paper_id == paper_id)
+        )).scalars().all()
+        for es in schemas:
+            await db.delete(es)
+
+        entities = (await db.execute(
+            select(Entity).where(Entity.paper_id == paper_id)
+        )).scalars().all()
+        for entity in entities:
+            await db.delete(entity)
+
         await db.delete(paper)
+
+        # Clean up orphaned synonyms — delete synonyms whose canonical
+        # or variant no longer appears in the remaining entity types
+        remaining_types = (await db.execute(select(Entity.entity_type).distinct())).scalars().all()
+        remaining_types_set = set(remaining_types)
+        if remaining_types_set:
+            all_synonyms = (await db.execute(select(EntitySynonym))).scalars().all()
+            for syn in all_synonyms:
+                if syn.canonical not in remaining_types_set or syn.variant not in remaining_types_set:
+                    await db.delete(syn)
+        else:
+            synonyms_to_delete = (await db.execute(select(EntitySynonym))).scalars().all()
+            for syn in synonyms_to_delete:
+                await db.delete(syn)
+
         await db.commit()
         break
+
+    # Clean up Milvus, Elasticsearch, and file — best-effort, don't fail the request
+    try:
+        init_milvus().delete(expr=f'paper_id == "{paper_id}"')
+    except Exception as e:
+        logger.warning("Milvus delete failed for %s: %s", paper_id, e)
+
+    try:
+        init_es().delete_by_query(index="papers", body={"query": {"term": {"paper_id": paper_id}}}, refresh=True)
+    except Exception as e:
+        logger.warning("ES delete failed for %s: %s", paper_id, e)
+
+    if file_path:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            logger.warning("File delete failed for %s: %s", file_path, e)
+
     return {"deleted": paper_id}

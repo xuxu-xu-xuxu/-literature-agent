@@ -1,4 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+
+const STORAGE_KEY = "literature_agent_chat";
 
 interface Citation {
   paper_id: string;
@@ -15,9 +17,40 @@ interface Message {
   citations?: Citation[];
 }
 
+function loadMessages(): Message[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMessages(msgs: Message[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs));
+  } catch {
+    // localStorage full or unavailable
+  }
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [initDone, setInitDone] = useState(false);
+
+  useEffect(() => {
+    setMessages(loadMessages());
+    setInitDone(true);
+  }, []);
+
+  useEffect(() => {
+    if (initDone) {
+      saveMessages(messages);
+    }
+  }, [messages, initDone]);
 
   const sendMessage = useCallback(async (query: string) => {
     const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: query };

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
-from backend.models.database import get_db, Entity
+from backend.models.database import get_db, Entity, EntitySchema, EntitySynonym
 from backend.models.schemas import EntityQueryParams
+from backend.services.schema_convergence import run_schema_convergence
 
 router = APIRouter(prefix="/api", tags=["entities"])
 
@@ -36,3 +37,24 @@ async def query_entities(params: EntityQueryParams = Depends()):
         "page": params.page,
         "page_size": params.page_size,
     }
+
+@router.get("/entities/types")
+async def list_entity_types():
+    async for db in get_db():
+        result = await db.execute(select(Entity.entity_type).distinct())
+        types = [row[0] for row in result.fetchall()]
+        break
+    return {"types": types}
+
+@router.get("/entities/synonyms")
+async def list_synonyms():
+    async for db in get_db():
+        result = await db.execute(select(EntitySynonym))
+        synonyms = [{"canonical": s.canonical, "variant": s.variant} for s in result.scalars().all()]
+        break
+    return {"synonyms": synonyms}
+
+@router.post("/entities/converge")
+async def trigger_convergence():
+    result = await run_schema_convergence()
+    return result
