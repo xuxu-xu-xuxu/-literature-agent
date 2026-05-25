@@ -26,11 +26,12 @@ def chunk_sections(sections: list[dict], chunk_size: int = 512, overlap: int = 6
                 "text": c,
                 "heading": sec["heading"],
                 "chunk_index": i,
+                "token_count": max(1, len(c) // 4),
             })
     return result
 
 def _split_sentences(text: str) -> List[str]:
-    pattern = re.compile(r'(?<=[。！？.!?\n])\s*')
+    pattern = re.compile(r'(?<=[。！？.!?\n])\s+')
     parts = pattern.split(text)
     result = []
     for p in parts:

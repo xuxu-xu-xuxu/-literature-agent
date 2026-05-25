@@ -1,12 +1,10 @@
-version: '3.8'
 services:
-  # ========== Milvus 依赖 + 本体 ==========
   etcd:
     image: quay.io/coreos/etcd:v3.5.5
     environment:
       ETCD_AUTO_COMPACTION_MODE: revision
-      ETCD_AUTO_COMPACTION_RETENTION: '1000'
-      ETCD_QUOTA_BACKEND_BYTES: '4294967296'
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
     volumes:
       - ./volumes/etcd:/etcd
     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
@@ -37,10 +35,11 @@ services:
       - "19530:19530"
       - "9091:9091"
     depends_on:
-      - etcd
-      - minio
+      etcd:
+        condition: service_started
+      minio:
+        condition: service_healthy
 
-  # ========== Elasticsearch ==========
   es:
     image: elasticsearch:8.15.3
     environment:
@@ -56,16 +55,28 @@ services:
     ports:
       - "9200:9200"
       - "9300:9300"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u elastic:YourPassword123! http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 12
 
-  # ========== BGE-M3 嵌入服务 ==========
   bge-m3:
     build: ./bge-api
     environment:
-      - HF_ENDPOINT=https://hf-mirror.com
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+      - MODEL_PATH=${BGE_MODEL_PATH:-BAAI/bge-m3}
+      - BGE_USE_FP16=${BGE_USE_FP16:-auto}
     ports:
       - "8000:8000"
     volumes:
       - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
     deploy:
       resources:
         reservations:
@@ -74,7 +85,6 @@ services:
               count: 1
               capabilities: [gpu]
 
-  # ========== PostgreSQL ==========
   postgres:
     image: postgres:16-alpine
     environment:
@@ -85,8 +95,12 @@ services:
       - ./volumes/postgres:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d literature"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
-  # ========== Literature Agent 后端 ==========
   backend:
     build:
       context: .
@@ -100,14 +114,42 @@ services:
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
-      - HF_ENDPOINT=https://hf-mirror.com
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+      - INGESTION_CONCURRENCY=${INGESTION_CONCURRENCY:-2}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-20}
+      - LLM_EXTRACT_CONCURRENCY=${LLM_EXTRACT_CONCURRENCY:-2}
+      - ENABLE_STRUCTURED_EXTRACTION=${ENABLE_STRUCTURED_EXTRACTION:-false}
+      - EXTRACTION_CONFIDENCE_THRESHOLD=${EXTRACTION_CONFIDENCE_THRESHOLD:-0.7}
     ports:
       - "8080:8080"
     volumes:
       - ./uploads:/app/uploads
       - ./schemas:/app/schemas
       - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health', timeout=5)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
     depends_on:
-      - postgres
-      - milvus
-      - es
+      postgres:
+        condition: service_healthy
+      milvus:
+        condition: service_started
+      es:
+        condition: service_healthy
+      bge-m3:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        API_BASE_URL: http://backend:8080
+    environment:
+      - API_BASE_URL=http://backend:8080
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy

@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from sqlalchemy import select, func
 from backend.models.database import get_db, Paper, Entity
 from backend.services.extract_service import run_extraction
+from backend.services.solid_electrolyte import extract_solid_electrolyte_records
 
 router = APIRouter(prefix="/api", tags=["extract"])
 
@@ -32,3 +33,16 @@ async def extraction_status(paper_id: str):
         count = count_result.scalar()
         break
     return {"paper_id": paper_id, "status": "done" if count > 0 else "pending", "entity_count": count}
+
+
+@router.post("/extract/solid-electrolyte/{paper_id}")
+async def trigger_solid_electrolyte_extraction(paper_id: str):
+    async for db in get_db():
+        paper = await db.get(Paper, paper_id)
+        if not paper:
+            raise HTTPException(status_code=404, detail="Paper not found")
+        if not paper.full_text:
+            raise HTTPException(status_code=400, detail="Paper has no text content")
+        full_text = paper.full_text
+        break
+    return await extract_solid_electrolyte_records(paper_id, full_text)

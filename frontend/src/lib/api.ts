@@ -25,6 +25,27 @@ export async function uploadPDF(file: File) {
   return resp.json();
 }
 
+export async function uploadBatchZip(file: File, autoMine = false) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("auto_mine", String(autoMine));
+  const resp = await fetch(`${BASE}/upload/batch`, { method: "POST", body: formData });
+  if (!resp.ok) throw new Error("Batch upload failed");
+  return resp.json();
+}
+
+export async function fetchIngestionJobs() {
+  const resp = await fetch(`${BASE}/ingestion/jobs`);
+  if (!resp.ok) throw new Error("Failed to fetch ingestion jobs");
+  return resp.json();
+}
+
+export async function triggerSolidElectrolyteExtraction(paperId: string) {
+  const resp = await fetch(`${BASE}/extract/solid-electrolyte/${paperId}`, { method: "POST" });
+  if (!resp.ok) throw new Error("Solid electrolyte extraction failed");
+  return resp.json();
+}
+
 export async function triggerExtraction(paperId: string) {
   const resp = await fetch(`${BASE}/extract/${paperId}`, { method: "POST" });
   if (!resp.ok) throw new Error("Extraction failed");
@@ -35,6 +56,7 @@ export async function fetchEntities(params?: {
   entity_type?: string;
   paper_id?: string;
   page?: number;
+  page_size?: number;
 }) {
   const searchParams = new URLSearchParams();
   if (params) {
@@ -67,11 +89,60 @@ export async function runSchemaConvergence() {
 }
 
 export async function visualizeQuery(query: string) {
-  const resp = await fetch("http://localhost:8080/api/visualize", {
+  const resp = await fetch(`${BASE}/visualize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),
   });
   if (!resp.ok) throw new Error("Visualization failed");
+  return resp.json();
+}
+
+export async function fetchSolidElectrolyteRecords(params?: {
+  paper_id?: string;
+  method?: string;
+  element?: string;
+  confidence_min?: number;
+  page?: number;
+  page_size?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/records?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch solid electrolyte records");
+  return resp.json();
+}
+
+export async function fetchConductivityByElement(params?: {
+  metric?: "avg" | "median";
+  method?: string;
+  temperature_min?: number;
+  temperature_max?: number;
+  confidence_min?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/conductivity/by-element?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch conductivity by element");
+  return resp.json();
+}
+
+export async function fetchConductivityByMethod() {
+  const resp = await fetch(`${BASE}/analytics/conductivity/by-method`);
+  if (!resp.ok) throw new Error("Failed to fetch conductivity by method");
+  return resp.json();
+}
+
+export async function fetchConductivityByTemperature() {
+  const resp = await fetch(`${BASE}/analytics/conductivity/by-temperature`);
+  if (!resp.ok) throw new Error("Failed to fetch conductivity by temperature");
   return resp.json();
 }

@@ -17,10 +17,16 @@ async def hybrid_search(query: str, top_k: int = RERANK_K) -> list[dict]:
     )
 
     es = init_es()
-    es_results = es.search(index="papers", body={
-        "query": {"match": {"full_text": {"query": query, "operator": "or"}}},
+    es_results = es.search(index="paper_chunks", body={
+        "query": {
+            "multi_match": {
+                "query": query,
+                "fields": ["text^2", "heading"],
+                "operator": "or",
+            }
+        },
         "size": RECALL_K,
-        "_source": ["paper_id", "title", "abstract"],
+        "_source": ["paper_id", "chunk_index", "heading", "text"],
     })
 
     rrf_scores = defaultdict(float)
@@ -36,12 +42,13 @@ async def hybrid_search(query: str, top_k: int = RERANK_K) -> list[dict]:
             "source": "milvus",
         }
     for rank, hit in enumerate(es_results["hits"]["hits"]):
-        doc_id = hit["_source"]["paper_id"] + "_es"
+        doc_id = f"{hit['_source']['paper_id']}_{hit['_source'].get('chunk_index', 'es')}"
         rrf_scores[doc_id] += 1 / (k + rank + 1)
         docs[doc_id] = {
             "paper_id": hit["_source"]["paper_id"],
-            "text": hit["_source"].get("abstract", ""),
-            "title": hit["_source"].get("title"),
+            "text": hit["_source"].get("text", ""),
+            "heading": hit["_source"].get("heading", ""),
+            "chunk_index": hit["_source"].get("chunk_index"),
             "source": "es",
         }
 

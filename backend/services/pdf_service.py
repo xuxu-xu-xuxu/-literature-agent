@@ -27,6 +27,7 @@ def parse_pdf(file_path: str) -> dict:
     except Exception:
         markdown_text = _extract_text_pymupdf(file_path)
         tables = []
+    markdown_text = _sanitize_text(markdown_text)
     metadata = _extract_metadata(file_path)
     sections = _split_by_sections(markdown_text)
     return {
@@ -44,7 +45,13 @@ def _extract_text_pymupdf(file_path: str) -> str:
     for page in doc:
         text += page.get_text()
     doc.close()
-    return text
+    return _sanitize_text(text)
+
+def _sanitize_text(text: str) -> str:
+    if not text:
+        return ""
+    text = text.replace("\x00", "")
+    return "".join(ch for ch in text if ch == "\n" or ch == "\t" or ord(ch) >= 32)
 
 def _extract_metadata(file_path: str) -> dict:
     import fitz
@@ -54,7 +61,7 @@ def _extract_metadata(file_path: str) -> dict:
     doc.close()
     title = meta.get("title", "") or (first_page.split("\n")[0] if first_page else "")
     author = meta.get("author", "")
-    return {"title": title.strip(), "authors": author.strip()}
+    return {"title": _sanitize_text(title).strip(), "authors": _sanitize_text(author).strip()}
 
 def _split_by_sections(text: str) -> list[dict]:
     import re

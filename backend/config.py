@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     chunk_size: int = 512
     chunk_overlap: int = 64
+    ingestion_concurrency: int = 2
+    embedding_batch_size: int = 20
+    llm_extract_concurrency: int = 2
+    enable_structured_extraction: bool = False
+    extraction_confidence_threshold: float = 0.7
 
     class Config:
         env_file = ".env"

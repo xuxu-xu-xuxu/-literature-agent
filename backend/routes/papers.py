@@ -3,7 +3,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
-from backend.models.database import get_db, Paper, Entity, EntitySchema, EntitySynonym
+from backend.models.database import get_db, Paper, Entity, EntitySchema, EntitySynonym, SolidElectrolyteRecord
 from backend.models.schemas import PaperOut, PaperDetailOut, PaperListParams
 from backend.services.ingestion import init_milvus, init_es
 
@@ -68,6 +68,12 @@ async def delete_paper(paper_id: str):
         for entity in entities:
             await db.delete(entity)
 
+        records = (await db.execute(
+            select(SolidElectrolyteRecord).where(SolidElectrolyteRecord.paper_id == paper_id)
+        )).scalars().all()
+        for record in records:
+            await db.delete(record)
+
         await db.delete(paper)
 
         # Clean up orphaned synonyms — delete synonyms whose canonical
@@ -95,6 +101,7 @@ async def delete_paper(paper_id: str):
 
     try:
         init_es().delete_by_query(index="papers", body={"query": {"term": {"paper_id": paper_id}}}, refresh=True)
+        init_es().delete_by_query(index="paper_chunks", body={"query": {"term": {"paper_id": paper_id}}}, refresh=True)
     except Exception as e:
         logger.warning("ES delete failed for %s: %s", paper_id, e)
 

@@ -1,16 +1,15 @@
 import httpx
 from backend.config import get_settings
 
-BATCH_SIZE = 20
-
 async def embed_sentences(sentences: list[str], return_sparse: bool = False) -> dict:
     settings = get_settings()
+    batch_size = settings.embedding_batch_size
     all_dense = []
     all_sparse = []
 
     async with httpx.AsyncClient(timeout=120) as client:
-        for i in range(0, len(sentences), BATCH_SIZE):
-            batch = sentences[i : i + BATCH_SIZE]
+        for i in range(0, len(sentences), batch_size):
+            batch = sentences[i : i + batch_size]
             resp = await client.post(
                 f"{settings.bge_embed_url}",
                 json={"sentences": batch, "return_sparse": return_sparse}

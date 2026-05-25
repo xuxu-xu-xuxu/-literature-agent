@@ -62,3 +62,19 @@ class EntityQueryParams(BaseModel):
     attribute_value: Optional[str] = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=200)
+
+class AnalyticsQueryParams(BaseModel):
+    metric: str = Field(default="avg", pattern="^(avg|median)$")
+    method: Optional[str] = None
+    element: Optional[str] = None
+    temperature_min: Optional[float] = None
+    temperature_max: Optional[float] = None
+    confidence_min: float = Field(default=0.7, ge=0, le=1)
+
+class RecordQueryParams(BaseModel):
+    paper_id: Optional[str] = None
+    method: Optional[str] = None
+    element: Optional[str] = None
+    confidence_min: float = Field(default=0.0, ge=0, le=1)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=500)
