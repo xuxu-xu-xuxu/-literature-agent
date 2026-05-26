@@ -8,13 +8,15 @@ import os
 app = FastAPI(title="BGE-M3 Embedding Service")
 model = None
 
-MODEL_PATH = os.environ.get("MODEL_PATH", "/root/.cache/huggingface/hub/BAAI/bge-m3")
+MODEL_PATH = os.environ.get("MODEL_PATH", "BAAI/bge-m3")
+USE_FP16 = os.environ.get("BGE_USE_FP16", "auto").lower()
 
 @app.on_event("startup")
 async def load_model():
     global model
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = BGEM3FlagModel(MODEL_PATH, use_fp16=(device=="cuda"), device=device)
+    use_fp16 = device == "cuda" if USE_FP16 == "auto" else USE_FP16 in {"1", "true", "yes", "on"}
+    model = BGEM3FlagModel(MODEL_PATH, use_fp16=use_fp16, device=device)
 
 class EmbeddingRequest(BaseModel):
     sentences: List[str]

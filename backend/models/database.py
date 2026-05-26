@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import Text, String, DateTime, JSON, Integer, ForeignKey
+from sqlalchemy import Text, String, DateTime, JSON, Integer, ForeignKey, Float, Boolean, text
 from datetime import datetime, timezone
 
 from backend.config import get_settings
@@ -26,6 +26,14 @@ async def init_db():
     engine, _ = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _patch_existing_schema(conn)
+
+async def _patch_existing_schema(conn):
+    dialect = conn.dialect.name
+    if dialect != "postgresql":
+        return
+    await conn.execute(text("ALTER TABLE solid_electrolyte_records ADD COLUMN IF NOT EXISTS is_crystalline BOOLEAN"))
+    await conn.execute(text("ALTER TABLE solid_electrolyte_records ADD COLUMN IF NOT EXISTS crystallinity VARCHAR(64) DEFAULT 'unknown'"))
 
 async def get_db() -> AsyncSession:
     _, async_session = _get_engine()
@@ -66,4 +74,51 @@ class EntitySynonym(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     canonical: Mapped[str] = mapped_column(String(256), nullable=False)
     variant: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class IngestionJob(Base):
+    __tablename__ = "ingestion_jobs"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    succeeded: Mapped[int] = mapped_column(Integer, default=0)
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+    duplicate: Mapped[int] = mapped_column(Integer, default=0)
+    current_file: Mapped[str] = mapped_column(String(1024), nullable=True)
+    error: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class PaperProcessingTask(Base):
+    __tablename__ = "paper_processing_tasks"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String(64), ForeignKey("ingestion_jobs.id", ondelete="CASCADE"), nullable=False)
+    paper_id: Mapped[str] = mapped_column(String(64), nullable=True)
+    filename: Mapped[str] = mapped_column(String(1024), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    stage: Mapped[str] = mapped_column(String(64), nullable=True)
+    error: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class SolidElectrolyteRecord(Base):
+    __tablename__ = "solid_electrolyte_records"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    paper_id: Mapped[str] = mapped_column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
+    material_formula: Mapped[str] = mapped_column(String(256), nullable=False)
+    normalized_formula: Mapped[str] = mapped_column(String(256), nullable=True)
+    elements: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    conductivity_value: Mapped[float] = mapped_column(Float, nullable=True)
+    conductivity_unit: Mapped[str] = mapped_column(String(64), nullable=True)
+    conductivity_s_cm: Mapped[float] = mapped_column(Float, nullable=True)
+    temperature_value: Mapped[float] = mapped_column(Float, nullable=True)
+    temperature_unit: Mapped[str] = mapped_column(String(32), nullable=True)
+    temperature_k: Mapped[float] = mapped_column(Float, nullable=True)
+    method: Mapped[str] = mapped_column(String(64), default="unknown")
+    method_detail: Mapped[str] = mapped_column(Text, nullable=True)
+    is_crystalline: Mapped[bool] = mapped_column(Boolean, nullable=True)
+    crystallinity: Mapped[str] = mapped_column(String(64), default="unknown")
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    page_or_section: Mapped[str] = mapped_column(String(256), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

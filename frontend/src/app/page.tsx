@@ -5,8 +5,10 @@ import { LiteratureSidebar } from "@/components/sidebar/literature-sidebar";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { VizPanel } from "@/components/viz/viz-panel";
 import { EntityBrowser } from "@/components/viz/entity-browser";
-import { fetchPapers, uploadPDF, deletePaper, triggerExtraction } from "@/lib/api";
-import { BarChart3, Database } from "lucide-react";
+import { DataMiningPanel } from "@/components/mining/data-mining-panel";
+import { AnalyticsPanel } from "@/components/analytics/analytics-panel";
+import { fetchPapers, uploadPDF, uploadBatchZip, deletePaper, triggerExtraction } from "@/lib/api";
+import { BarChart3, Database, LineChart, Pickaxe } from "lucide-react";
 
 interface Paper {
   id: string;
@@ -20,7 +22,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [rightTab, setRightTab] = useState<"viz" | "entities">("viz");
+  const [rightTab, setRightTab] = useState<"analytics" | "mining" | "viz" | "entities">("analytics");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -57,8 +59,8 @@ export default function Home() {
     try {
       await deletePaper(id);
       setPapers((prev) => prev.filter((p) => p.id !== id));
-    } catch (e: any) {
-      setErrorMsg(e.message || "删除失败，请重试");
+    } catch (e: unknown) {
+      setErrorMsg(e instanceof Error ? e.message : "删除失败，请重试");
       setTimeout(() => setErrorMsg(null), 5000);
     }
   };
@@ -84,9 +86,22 @@ export default function Home() {
     }
   };
 
+  const handleBatchUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      await uploadBatchZip(file, false);
+      await loadPapers();
+      setRightTab("mining");
+    } catch (e) {
+      console.error("Batch upload failed", e);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col">
-      <Header onUpload={handleUpload} uploading={uploading} />
+      <Header onUpload={handleUpload} onBatchUpload={handleBatchUpload} uploading={uploading} />
       {errorMsg && (
         <div className="fixed top-4 right-4 z-50 px-4 py-2 bg-red-600 text-white text-sm rounded-lg shadow-lg">
           {errorMsg}
@@ -111,15 +126,37 @@ export default function Home() {
             {/* Tab bar */}
             <div className="flex border-b border-slate-800 bg-slate-950 shrink-0">
               <button
-                onClick={() => setRightTab("viz")}
+                onClick={() => setRightTab("analytics")}
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors ${
-                  rightTab === "viz"
+                  rightTab === "analytics"
                     ? "text-blue-400 border-b-2 border-blue-400"
                     : "text-slate-500 hover:text-slate-300"
                 }`}
               >
+                <LineChart className="w-3.5 h-3.5" />
+                统计图
+              </button>
+              <button
+                onClick={() => setRightTab("mining")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors ${
+                  rightTab === "mining"
+                    ? "text-emerald-400 border-b-2 border-emerald-400"
+                    : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                <Pickaxe className="w-3.5 h-3.5" />
+                挖掘
+              </button>
+              <button
+                onClick={() => setRightTab("viz")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors ${
+                  rightTab === "viz"
+                    ? "text-violet-400 border-b-2 border-violet-400"
+                    : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
                 <BarChart3 className="w-3.5 h-3.5" />
-                可视化
+                智能
               </button>
               <button
                 onClick={() => setRightTab("entities")}
@@ -134,7 +171,10 @@ export default function Home() {
               </button>
             </div>
             <div className="flex-1 min-h-0">
-              {rightTab === "viz" ? <VizPanel /> : <EntityBrowser />}
+              {rightTab === "analytics" && <AnalyticsPanel />}
+              {rightTab === "mining" && <DataMiningPanel papers={papers} />}
+              {rightTab === "viz" && <VizPanel />}
+              {rightTab === "entities" && <EntityBrowser />}
             </div>
           </div>
         </div>
