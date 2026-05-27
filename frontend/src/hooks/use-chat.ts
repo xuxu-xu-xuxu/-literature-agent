@@ -97,7 +97,7 @@ export function useChat(conversationId: string | null) {
                   );
                 }
               } catch {
-                if (data.length > 0) {
+                if (data.length > 0 && !/^[🔍📚✅]/.test(data)) {
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === assistantMsg.id ? { ...m, content: m.content + data } : m
