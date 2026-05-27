@@ -29,7 +29,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white">
+    <div className="h-full w-full flex items-center justify-center bg-white">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <BookOpen className="w-10 h-10 text-[#1a2744] mx-auto mb-3" />

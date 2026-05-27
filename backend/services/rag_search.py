@@ -3,7 +3,7 @@ from backend.services.ingestion import init_milvus, init_es, COLLECTION_NAME
 from collections import defaultdict
 
 RECALL_K = 30
-RERANK_K = 10
+RERANK_K = 20
 ENABLE_RERANK = True
 
 async def hybrid_search(query: str, top_k: int = RERANK_K) -> list[dict]:

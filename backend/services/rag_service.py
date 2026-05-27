@@ -70,7 +70,7 @@ async def generate_answer_stream(query: str, conversation_history: list[dict] = 
             prefix += f" §{heading}"
         context_parts.append(f"{prefix}\n{text}")
 
-    context = "\n\n---\n\n".join(context_parts[:10])
+    context = "\n\n---\n\n".join(context_parts[:20])
 
     messages = [{"role": "system", "content": RAG_SYSTEM_PROMPT}]
     if conversation_history:
