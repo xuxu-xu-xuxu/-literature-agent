@@ -144,7 +144,7 @@ export function ChatPanel({ scopePaperId }: Props) {
           <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
             {messages.map((msg) => (
               <ChatMessage
-                key={msg.id}
+                key={msg.role === "assistant" && msg.content ? `${msg.id}-${msg.content.length}` : msg.id}
                 role={msg.role}
                 content={msg.content}
                 citations={msg.citations}

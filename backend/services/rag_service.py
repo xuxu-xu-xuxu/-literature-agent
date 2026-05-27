@@ -82,6 +82,6 @@ async def generate_answer_stream(query: str, conversation_history: list[dict] = 
         yield chunk
 
     if cited_docs:
-        yield "\n\n---\n**参考文献：**\n"
+        yield "\n\n---\n\n**参考文献：**\n\n"
         for num, title in cited_docs.items():
-            yield f"\n[文献{num}] 《{title}》"
+            yield f"{num}. 《{title}》\n\n"

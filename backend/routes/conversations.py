@@ -82,9 +82,10 @@ async def send_message(conversation_id: str, body: dict, user: User = Depends(ge
         try:
             async for chunk in generate_answer_stream(query):
                 if chunk:
-                    full_response += chunk
-                    data = chunk.replace("\n", "\ndata: ")
-                    yield f"data: {data}\n\n"
+                    sse_data = chunk.replace("\n", "\ndata: ")
+                    yield f"data: {sse_data}\n\n"
+                    if not chunk.startswith(("🔍", "\n📚", "\n✅", "📚", "✅")):
+                        full_response += chunk
         except Exception as exc:
             yield f"data: [回答出错：{exc}]\n\n"
 
