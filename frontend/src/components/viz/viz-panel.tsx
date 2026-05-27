@@ -55,7 +55,7 @@ export function VizPanel() {
             size="sm"
             onClick={handleVisualize}
             disabled={loading || !query.trim()}
-            className="shrink-0 gap-1.5 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white border-0"
+            className="shrink-0 gap-1.5 bg-[#1a2744] hover:bg-[#2d3f5e] text-white border-0"
           >
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -79,8 +79,8 @@ export function VizPanel() {
 
         {!loading && !result && (
           <div className="flex flex-col items-center justify-center py-16 px-4 gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600/20 to-violet-600/20 flex items-center justify-center">
-              <BarChart3 className="w-8 h-8 text-[#2c5282]/60" />
+            <div className="w-16 h-16 rounded-2xl bg-[#eef2f8] flex items-center justify-center">
+              <BarChart3 className="w-8 h-8 text-[#1a2744]/40" />
             </div>
             <p className="text-sm text-gray-500 text-center">
               输入自然语言描述，AI 将自动查询数据库并生成图表

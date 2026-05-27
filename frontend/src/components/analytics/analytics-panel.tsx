@@ -120,8 +120,15 @@ export function AnalyticsPanel() {
             <Loader2 className="w-6 h-6 animate-spin text-[#2c5282]" />
           </div>
         )}
-        {error && <p className="p-4 text-sm text-red-400">{error}</p>}
-        {!loading && result && (
+        {error && <p className="p-4 text-sm text-red-500">{error}</p>}
+        {!loading && result && (!result.data || result.data.length === 0) && (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <BarChart3 className="w-8 h-8 text-gray-300" />
+            <p className="text-sm text-gray-500">暂无数据</p>
+            <p className="text-xs text-gray-400">请先在数据挖掘中抽取固态电解质记录</p>
+          </div>
+        )}
+        {!loading && result && result.data && result.data.length > 0 && (
           <>
             <ChartContainer option={result.echarts_option} title={result.title} />
             <div className="px-4 pb-4">
@@ -129,8 +136,8 @@ export function AnalyticsPanel() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-[#fafafa]">
-                      {Object.keys(result.data?.[0] || {}).map((key) => (
-                        <th key={key} className="px-3 py-2 text-left text-gray-400">{key}</th>
+                      {Object.keys(result.data[0] || {}).map((key) => (
+                        <th key={key} className="px-3 py-2 text-left text-gray-500">{key}</th>
                       ))}
                     </tr>
                   </thead>
@@ -138,7 +145,7 @@ export function AnalyticsPanel() {
                     {(result.data || []).map((row: Record<string, unknown>, i: number) => (
                       <tr key={i} className="border-t border-[#e5e7eb]">
                         {Object.values(row).map((value, j) => (
-                          <td key={j} className="px-3 py-2 text-gray-600">{String(value)}</td>
+                          <td key={j} className="px-3 py-2 text-gray-700">{String(value)}</td>
                         ))}
                       </tr>
                     ))}

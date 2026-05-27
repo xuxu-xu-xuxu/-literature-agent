@@ -10,6 +10,7 @@ interface Paper {
 
 export default function ChatPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
+  const [scopePaperId, setScopePaperId] = useState<string>("");
 
   const loadPapers = useCallback(async () => {
     try {
@@ -28,7 +29,7 @@ export default function ChatPage() {
     <div className="h-full flex">
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <ChatPanel />
+        <ChatPanel scopePaperId={scopePaperId || undefined} />
       </div>
 
       {/* Scope selector sidebar */}
@@ -40,7 +41,8 @@ export default function ChatPage() {
           <input
             type="radio"
             name="scope"
-            defaultChecked
+            checked={scopePaperId === ""}
+            onChange={() => setScopePaperId("")}
             className="accent-[#1a2744]"
           />
           <span className="text-xs text-gray-700">全部文献</span>
@@ -53,6 +55,8 @@ export default function ChatPage() {
             <input
               type="radio"
               name="scope"
+              checked={scopePaperId === paper.id}
+              onChange={() => setScopePaperId(paper.id)}
               className="accent-[#1a2744]"
             />
             <span className="text-xs text-gray-700 truncate">

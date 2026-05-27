@@ -37,13 +37,6 @@ export default function LibraryPage() {
     loadPapers();
   }, [loadPapers]);
 
-  const filtered = papers.filter((p) =>
-    keyword
-      ? p.title.toLowerCase().includes(keyword.toLowerCase()) ||
-        (p.authors || "").toLowerCase().includes(keyword.toLowerCase())
-      : true
-  );
-
   const handleUpload = async (file: File) => {
     setUploading(true);
     setError(null);
@@ -146,7 +139,7 @@ export default function LibraryPage() {
           <input
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="搜索标题、作者..."
+            placeholder="搜索标题..."
             className="w-full pl-9 pr-4 py-2 border border-[#e5e7eb] rounded-lg text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:border-[#1a2744] focus:ring-1 focus:ring-[#1a2744]"
           />
         </div>
@@ -159,12 +152,12 @@ export default function LibraryPage() {
             <span>年份</span>
             <span>状态</span>
           </div>
-          {filtered.length === 0 && (
+          {papers.length === 0 && (
             <div className="px-5 py-12 text-center text-sm text-gray-400">
               暂无文献，请上传 PDF 开始
             </div>
           )}
-          {filtered.map((paper) => (
+          {papers.map((paper) => (
             <div
               key={paper.id}
               className="grid grid-cols-[1fr_140px_80px_90px] gap-4 px-5 py-3 border-b border-[#f3f4f6] text-sm text-gray-700 hover:bg-[#fafafa] group"

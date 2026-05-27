@@ -159,7 +159,7 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
               disabled={extractingId !== null}
               className="w-full text-left text-xs px-2 py-1.5 rounded bg-[#fafafa] hover:bg-[#f0f0f0] text-gray-700 disabled:opacity-50 truncate"
             >
-              {extractingId === paper.id ? "抽取中..." : paper.title}
+              {extractingId === paper.id ? "抽取中..." : paper.title.replace(/\.pdf$/i, "")}
             </button>
           ))}
         </div>

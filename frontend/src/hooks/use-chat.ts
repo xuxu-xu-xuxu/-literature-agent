@@ -52,7 +52,7 @@ export function useChat() {
     }
   }, [messages, initDone]);
 
-  const sendMessage = useCallback(async (query: string) => {
+  const sendMessage = useCallback(async (query: string, scopePaperIds: string[] = []) => {
     const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: query };
     const assistantMsg: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -62,7 +62,7 @@ export function useChat() {
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, stream: true }),
+        body: JSON.stringify({ query, stream: true, scope_paper_ids: scopePaperIds }),
       });
 
       const reader = resp.body?.getReader();

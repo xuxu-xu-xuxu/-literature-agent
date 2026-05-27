@@ -4,7 +4,11 @@ import { ChatMessage } from "./chat-message";
 import { ChatInput } from "./chat-input";
 import { useChat } from "@/hooks/use-chat";
 
-export function ChatPanel() {
+interface Props {
+  scopePaperId?: string;
+}
+
+export function ChatPanel({ scopePaperId }: Props) {
   const { messages, isStreaming, sendMessage } = useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -13,6 +17,10 @@ export function ChatPanel() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  const handleSend = (query: string) => {
+    sendMessage(query, scopePaperId ? [scopePaperId] : []);
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -40,7 +48,7 @@ export function ChatPanel() {
           ))}
         </div>
       )}
-      <ChatInput onSend={sendMessage} disabled={isStreaming} />
+      <ChatInput onSend={handleSend} disabled={isStreaming} />
     </div>
   );
 }
