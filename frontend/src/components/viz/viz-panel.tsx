@@ -91,7 +91,7 @@ export function VizPanel() {
                   <button
                     key={hint}
                     onClick={() => setQuery(hint)}
-                    className="text-xs px-2.5 py-1 rounded-full bg-white text-gray-400 hover:text-gray-800 hover:bg-[#eef2f8] transition-colors"
+                    className="text-xs px-2.5 py-1 rounded-full bg-white text-gray-500 hover:text-gray-800 hover:bg-[#eef2f8] transition-colors"
                   >
                     {hint}
                   </button>

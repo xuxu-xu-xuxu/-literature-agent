@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Pickaxe } from "lucide-react";
+import { BarChart3, Pickaxe } from "lucide-react";
 import { AnalyticsPanel } from "@/components/analytics/analytics-panel";
 import { DataMiningPanel } from "@/components/mining/data-mining-panel";
 import { fetchPapers } from "@/lib/api";
@@ -12,6 +12,7 @@ interface Paper {
 }
 
 export default function AnalyticsPage() {
+  const [tab, setTab] = useState<"charts" | "mining">("charts");
   const [papers, setPapers] = useState<Paper[]>([]);
 
   useEffect(() => {
@@ -21,25 +22,45 @@ export default function AnalyticsPage() {
   }, []);
 
   return (
-    <div className="h-full flex">
-      {/* Main: Charts */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-6 py-8">
-          <h1 className="text-2xl font-heading text-[#1a2744] mb-1">数据分析</h1>
-          <p className="text-sm text-gray-500 mb-6">
-            固态电解质电导率统计 & 数据抽取
-          </p>
-          <AnalyticsPanel />
+    <div className="h-full flex flex-col">
+      {/* Page header */}
+      <div className="px-6 pt-8 pb-0 shrink-0">
+        <h1 className="text-2xl font-heading text-[#1a2744] mb-1">数据分析</h1>
+        <p className="text-sm text-gray-500">
+          固态电解质电导率统计 & 数据抽取
+        </p>
+
+        {/* Tabs */}
+        <div className="flex gap-0 mt-5 border-b-2 border-[#e5e7eb]">
+          <button
+            onClick={() => setTab("charts")}
+            className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+              tab === "charts"
+                ? "text-[#1a2744] border-[#1a2744]"
+                : "text-gray-400 border-transparent hover:text-gray-600"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            统计图表
+          </button>
+          <button
+            onClick={() => setTab("mining")}
+            className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+              tab === "mining"
+                ? "text-[#1a2744] border-[#1a2744]"
+                : "text-gray-400 border-transparent hover:text-gray-600"
+            }`}
+          >
+            <Pickaxe className="w-4 h-4" />
+            数据挖掘
+          </button>
         </div>
       </div>
 
-      {/* Right: Data Mining Panel */}
-      <div className="w-56 shrink-0 border-l border-[#e5e7eb] bg-[#fafafa] p-4 overflow-y-auto">
-        <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <Pickaxe className="w-3.5 h-3.5" />
-          数据挖掘
-        </h3>
-        <DataMiningPanel papers={papers} />
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {tab === "charts" && <AnalyticsPanel />}
+        {tab === "mining" && <DataMiningPanel papers={papers} />}
       </div>
     </div>
   );

@@ -131,7 +131,7 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
                 <div className="font-medium text-sm text-gray-900">{record.material_formula}</div>
                 <span className="text-[11px] text-gray-500">{record.method}</span>
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-400">
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-500">
                 <span>电导率: {record.conductivity_s_cm?.toExponential(2) ?? "-" } S/cm</span>
                 <span>温度: {record.temperature_k ? `${record.temperature_k.toFixed(1)} K` : "-"}</span>
                 <span>晶体态: {record.is_crystalline === null ? "未知" : record.is_crystalline ? "是" : "否"}</span>

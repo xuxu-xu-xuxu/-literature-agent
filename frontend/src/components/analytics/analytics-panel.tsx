@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import { BarChart3, LineChart, Loader2, PieChart } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   fetchConductivityByElement,
   fetchConductivityByMethod,
@@ -54,24 +53,63 @@ export function AnalyticsPanel() {
           <BarChart3 className="w-4 h-4 text-[#2c5282]" />
           一键可视化
         </h2>
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          <Button size="sm" variant={kind === "element" ? "default" : "outline"} onClick={() => setKind("element")} className="gap-1 bg-[#1a2744] hover:bg-[#2d3f5e]">
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={() => setKind("element")}
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              kind === "element"
+                ? "bg-[#1a2744] text-white"
+                : "bg-white border border-[#d1d5db] text-gray-600 hover:bg-[#fafafa]"
+            }`}
+          >
             <BarChart3 className="w-3.5 h-3.5" />
             元素
-          </Button>
-          <Button size="sm" variant={kind === "method" ? "default" : "outline"} onClick={() => setKind("method")} className="gap-1 bg-[#1a2744] hover:bg-[#2d3f5e]">
+          </button>
+          <button
+            onClick={() => setKind("method")}
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              kind === "method"
+                ? "bg-[#1a2744] text-white"
+                : "bg-white border border-[#d1d5db] text-gray-600 hover:bg-[#fafafa]"
+            }`}
+          >
             <PieChart className="w-3.5 h-3.5" />
             方法
-          </Button>
-          <Button size="sm" variant={kind === "temperature" ? "default" : "outline"} onClick={() => setKind("temperature")} className="gap-1 bg-[#1a2744] hover:bg-[#2d3f5e]">
+          </button>
+          <button
+            onClick={() => setKind("temperature")}
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              kind === "temperature"
+                ? "bg-[#1a2744] text-white"
+                : "bg-white border border-[#d1d5db] text-gray-600 hover:bg-[#fafafa]"
+            }`}
+          >
             <LineChart className="w-3.5 h-3.5" />
             温度
-          </Button>
+          </button>
         </div>
         {kind === "element" && (
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <Button size="sm" variant={metric === "avg" ? "default" : "outline"} onClick={() => setMetric("avg")} className="bg-[#1a2744] hover:bg-[#2d3f5e]">平均值</Button>
-            <Button size="sm" variant={metric === "median" ? "default" : "outline"} onClick={() => setMetric("median")} className="bg-[#1a2744] hover:bg-[#2d3f5e]">中位数</Button>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => setMetric("avg")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                metric === "avg"
+                  ? "bg-[#1a2744] text-white"
+                  : "bg-white border border-[#d1d5db] text-gray-600 hover:bg-[#fafafa]"
+              }`}
+            >
+              平均值
+            </button>
+            <button
+              onClick={() => setMetric("median")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                metric === "median"
+                  ? "bg-[#1a2744] text-white"
+                  : "bg-white border border-[#d1d5db] text-gray-600 hover:bg-[#fafafa]"
+              }`}
+            >
+              中位数
+            </button>
           </div>
         )}
       </div>
