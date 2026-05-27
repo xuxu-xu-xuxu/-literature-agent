@@ -1,14 +1,22 @@
 import type { Config } from "tailwindcss";
 const config: Config = {
-  darkMode: "class",
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
         accent: {
-          DEFAULT: "#2563eb",
-          light: "#3b82f6",
+          DEFAULT: "#1a2744",
+          light: "#eef2f8",
         },
+        nav: "#1a2744",
+        surface: "#fafafa",
+      },
+      fontFamily: {
+        heading: ["Georgia", "'Times New Roman'", "serif"],
+        mono: ["'Courier New'", "monospace"],
+      },
+      borderRadius: {
+        bubble: "12px",
       },
     },
   },

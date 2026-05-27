@@ -3,14 +3,24 @@
 @tailwind utilities;
 
 :root {
-  --background: 255 255 255;
-  --foreground: 15 23 42;
+  --color-bg: 255 255 255;
+  --color-surface: 250 250 250;
+  --color-border: 229 229 229;
+  --color-nav: 26 39 68;
+  --color-primary: 26 39 68;
+  --color-primary-light: 238 242 248;
+  --color-text: 55 65 81;
+  --color-text-secondary: 107 114 128;
+  --color-success: 5 150 105;
+  --color-link: 44 82 130;
 }
-.dark {
-  --background: 15 23 42;
-  --foreground: 248 250 252;
-}
+
 body {
-  background: rgb(var(--background));
-  color: rgb(var(--foreground));
+  background: rgb(var(--color-bg));
+  color: rgb(var(--color-text));
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: Georgia, 'Times New Roman', serif;
 }
