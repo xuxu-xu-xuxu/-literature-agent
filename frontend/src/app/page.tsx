@@ -120,7 +120,7 @@ export default function Home() {
         )}
         <div className="flex-1 flex min-w-0">
           <div className="flex-1 border-r border-slate-800">
-            <ChatPanel onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+            <ChatPanel />
           </div>
           <div className="w-96 shrink-0 flex flex-col">
             {/* Tab bar */}
