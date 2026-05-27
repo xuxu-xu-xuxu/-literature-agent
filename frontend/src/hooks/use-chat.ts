@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-
-const STORAGE_KEY = "literature_agent_chat";
+import { useAuth } from "@/contexts/auth";
 
 interface Citation {
   paper_id: string;
@@ -17,110 +16,110 @@ interface Message {
   citations?: Citation[];
 }
 
-function loadMessages(): Message[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveMessages(msgs: Message[]) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs));
-  } catch {
-    // localStorage full or unavailable
-  }
-}
-
-export function useChat() {
+export function useChat(conversationId: string | null) {
+  const { token } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [initDone, setInitDone] = useState(false);
+  const [loading, setLoading] = useState(false);
 
+  // Load messages when conversation changes
   useEffect(() => {
-    setMessages(loadMessages());
-    setInitDone(true);
-  }, []);
-
-  useEffect(() => {
-    if (initDone) {
-      saveMessages(messages);
+    if (!conversationId || !token) {
+      setMessages([]);
+      return;
     }
-  }, [messages, initDone]);
+    setLoading(true);
+    fetch(`/api/conversations/${conversationId}/messages`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        setMessages(
+          (data || []).map((m: { id: number; role: string; content: string; citations?: Citation[] }) => ({
+            id: String(m.id),
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            citations: m.citations,
+          }))
+        );
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [conversationId, token]);
 
-  const sendMessage = useCallback(async (query: string, scopePaperIds: string[] = []) => {
-    const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: query };
-    const assistantMsg: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-    setIsStreaming(true);
+  const sendMessage = useCallback(
+    async (query: string, scopePaperIds: string[] = []) => {
+      if (!conversationId || !token) return;
 
-    try {
-      const resp = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, stream: true, scope_paper_ids: scopePaperIds }),
-      });
+      const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: query };
+      const assistantMsg: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setIsStreaming(true);
 
-      const reader = resp.body?.getReader();
-      if (!reader) {
-        setIsStreaming(false);
-        return;
-      }
+      try {
+        const resp = await fetch(`/api/conversations/${conversationId}/messages`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ query, scope_paper_ids: scopePaperIds }),
+        });
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (!data) continue;
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.content) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsg.id ? { ...m, content: m.content + parsed.content } : m
-                  )
-                );
-              } else if (parsed.refs) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsg.id ? { ...m, citations: parsed.refs } : m
-                  )
-                );
-              }
-            } catch {
-              // Plain text chunk, append directly
-              if (data.length > 0) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsg.id ? { ...m, content: m.content + data } : m
-                  )
-                );
+        const reader = resp.body?.getReader();
+        if (!reader) { setIsStreaming(false); return; }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6).trim();
+              if (!data) continue;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.content) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMsg.id ? { ...m, content: m.content + parsed.content } : m
+                    )
+                  );
+                } else if (parsed.refs) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMsg.id ? { ...m, citations: parsed.refs } : m
+                    )
+                  );
+                }
+              } catch {
+                if (data.length > 0) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMsg.id ? { ...m, content: m.content + data } : m
+                    )
+                  );
+                }
               }
             }
           }
         }
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsg.id ? { ...m, content: m.content + "\n[回答出错，请重试]" } : m
+          )
+        );
+      } finally {
+        setIsStreaming(false);
       }
-    } catch {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantMsg.id ? { ...m, content: m.content + "\n[回答出错，请重试]" } : m
-        )
-      );
-    } finally {
-      setIsStreaming(false);
-    }
-  }, []);
+    },
+    [conversationId, token]
+  );
 
-  return { messages, isStreaming, sendMessage };
+  return { messages, isStreaming, loading, sendMessage };
 }
