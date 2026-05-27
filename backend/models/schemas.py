@@ -78,3 +78,34 @@ class RecordQueryParams(BaseModel):
     confidence_min: float = Field(default=0.0, ge=0, le=1)
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=500)
+
+
+class AuthRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class ConversationCreate(BaseModel):
+    title: str = Field(default="新对话", max_length=256)
+
+
+class ConversationOut(BaseModel):
+    id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MessageOut(BaseModel):
+    id: int
+    conversation_id: str
+    role: str
+    content: str
+    citations: Optional[dict] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

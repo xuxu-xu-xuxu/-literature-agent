@@ -1,9 +1,15 @@
+import uuid
+
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import Text, String, DateTime, JSON, Integer, ForeignKey, Float, Boolean, text
 from datetime import datetime, timezone
 
 from backend.config import get_settings
+
+
+def _new_uuid() -> str:
+    return uuid.uuid4().hex
 
 _engine = None
 _async_session = None
@@ -121,4 +127,31 @@ class SolidElectrolyteRecord(Base):
     evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
     page_or_section: Mapped[str] = mapped_column(String(256), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_new_uuid)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_new_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(String(256), default="新对话")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(String(64), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    citations: Mapped[dict] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
