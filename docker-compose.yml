@@ -67,6 +67,8 @@ services:
       - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
       - MODEL_PATH=${BGE_MODEL_PATH:-BAAI/bge-m3}
       - BGE_USE_FP16=${BGE_USE_FP16:-auto}
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
     ports:
       - "8000:8000"
     volumes:

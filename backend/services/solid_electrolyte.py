@@ -202,11 +202,11 @@ def regex_extract_records(text: str) -> list[dict]:
     records = []
     windows = find_candidate_windows(text)
     cond_pattern = re.compile(
-        r"(?P<value>[+-]?\d+(?:\.\d+)?(?:\s*[xX脳]\s*10\^?-?\d+|[eE][+-]?\d+)?)\s*(?P<unit>[m渭碌u]?S\s*/\s*cm|S\s*/\s*m)",
+        r"(?P<value>[+-]?\d+(?:\.\d+)?(?:\s*[xX×]\s*10\^?-?\d+|[eE][+-]?\d+)?)\s*(?P<unit>[mμµu]?S\s*/\s*cm|S\s*/\s*m)",
         re.I,
     )
     temp_pattern = re.compile(
-        r"(?P<temp>\d+(?:\.\d+)?)\s*(?P<tunit>K|掳C|鈩億C)\b|(?P<ctemp>\d+(?:\.\d+)?)\s+C\b",
+        r"(?P<temp>\d+(?:\.\d+)?)\s*(?P<tunit>K|°C|℃)\b|(?P<ctemp>\d+(?:\.\d+)?)\s+C\b",
         re.I,
     )
     formula_pattern = re.compile(r"\b(?=[A-Za-z0-9().-]*\d)(?:Li|Na|K|Ag|Cu|Mg|Ca|Ba|Sr|La|Zr|Ta|Nb|P|S|O|Cl|Br|I|Ge|Si|Al|Ga|Ti|Sn|Y|Sc|Hf|W|Mo)(?:[A-Z][a-z]?|\d|\.|\(|\)|x|y|-){2,}\b")
