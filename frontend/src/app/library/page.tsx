@@ -20,7 +20,7 @@ export default function LibraryPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [keyword, setKeyword] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; type: "error" | "info" } | null>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
 
@@ -29,7 +29,7 @@ export default function LibraryPage() {
       const data = await fetchPapers({ keyword: keyword || undefined });
       setPapers(data.items || []);
     } catch {
-      setError("加载文献列表失败");
+      setMessage({ text: "加载文献列表失败", type: "error" });
     }
   }, [keyword]);
 
@@ -57,12 +57,16 @@ export default function LibraryPage() {
 
   const handleUpload = async (file: File) => {
     setUploading(true);
-    setError(null);
+    setMessage(null);
     try {
-      await uploadPDF(file);
-      await loadPapers();
+      const result = await uploadPDF(file);
+      if (result.status === "duplicate") {
+        setMessage({ text: "该文献已存在，已跳过", type: "info" });
+      } else {
+        await loadPapers();
+      }
     } catch {
-      setError("上传失败");
+      setMessage({ text: "上传失败", type: "error" });
     } finally {
       setUploading(false);
     }
@@ -70,12 +74,12 @@ export default function LibraryPage() {
 
   const handleBatchUpload = async (file: File) => {
     setUploading(true);
-    setError(null);
+    setMessage(null);
     try {
       await uploadBatchZip(file, false);
       await loadPapers();
     } catch {
-      setError("批量导入失败");
+      setMessage({ text: "批量导入失败", type: "error" });
     } finally {
       setUploading(false);
     }
@@ -86,7 +90,7 @@ export default function LibraryPage() {
       await deletePaper(id);
       setPapers((prev) => prev.filter((p) => p.id !== id));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "删除失败");
+      setMessage({ text: e instanceof Error ? e.message : "删除失败", type: "error" });
     }
   };
 
@@ -145,9 +149,13 @@ export default function LibraryPage() {
         </div>
 
         {/* Error */}
-        {error && (
-          <div className="mb-4 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-            {error}
+        {message && (
+          <div className={`mb-4 px-4 py-2 border rounded-lg text-sm ${
+            message.type === "error"
+              ? "bg-red-50 border-red-200 text-red-600"
+              : "bg-blue-50 border-blue-200 text-blue-600"
+          }`}>
+            {message.text}
           </div>
         )}
 
