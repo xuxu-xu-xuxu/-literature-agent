@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Pickaxe } from "lucide-react";
 import { AnalyticsPanel } from "@/components/analytics/analytics-panel";
 import { DataMiningPanel } from "@/components/mining/data-mining-panel";
@@ -13,14 +13,12 @@ interface Paper {
 
 export default function AnalyticsPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
-  const [papersLoaded, setPapersLoaded] = useState(false);
 
-  if (!papersLoaded) {
+  useEffect(() => {
     fetchPapers()
       .then((data) => setPapers(data.items || []))
-      .catch(() => {})
-      .finally(() => setPapersLoaded(true));
-  }
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="h-full flex">
