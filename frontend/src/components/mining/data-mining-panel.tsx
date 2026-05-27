@@ -1,6 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
-import { Database, Loader2, Pickaxe, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Database, Loader2, Pickaxe, RefreshCw, FileArchive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   fetchIngestionJobs,
@@ -42,6 +42,7 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
   const [loading, setLoading] = useState(false);
   const [extractingId, setExtractingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     setError("");
@@ -52,14 +53,35 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
       ]);
       setRecords(recordData.items || []);
       setJobs(jobData.items || []);
+      return jobData.items || [];
     } catch {
       setError("加载数据挖掘结果失败");
+      return [];
     }
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Auto-poll when there are active jobs
+  useEffect(() => {
+    const activeJobs = jobs.filter(
+      (j) => j.status === "extracting" || j.status === "queued" || j.status === "running"
+    );
+    if (activeJobs.length > 0 && !pollRef.current) {
+      pollRef.current = setInterval(load, 3000);
+    } else if (activeJobs.length === 0 && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [jobs, load]);
 
   const runExtraction = async (paperId: string) => {
     setExtractingId(paperId);
@@ -113,10 +135,23 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
           {jobs.slice(0, 3).map((job) => (
             <div key={job.id} className="text-xs bg-[#fafafa] border border-[#e5e7eb] rounded p-2">
               <div className="flex justify-between text-gray-700">
-                <span>{job.status}</span>
-                <span>{job.succeeded + job.failed + job.duplicate}/{job.total}</span>
+                <span className="flex items-center gap-1">
+                  {job.status === "extracting" && <FileArchive className="w-3 h-3 text-[#1a2744]" />}
+                  {job.status === "running" && <Loader2 className="w-3 h-3 animate-spin text-[#1a2744]" />}
+                  {job.status === "queued" && "⏳ "}
+                  {job.status === "extracting" ? "解压中" : job.status === "queued" ? "排队中" : job.status === "running" ? "处理中" : job.status === "done" ? "已完成" : job.status === "partial_failed" ? "部分失败" : job.status}
+                </span>
+                <span>{job.succeeded + job.failed + job.duplicate}/{job.total || "?"}</span>
               </div>
               {job.current_file && <div className="text-gray-500 truncate mt-1">{job.current_file}</div>}
+              {job.status === "running" && job.total > 0 && (
+                <div className="mt-1.5 bg-[#e5e7eb] rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-[#1a2744] h-full rounded-full transition-all duration-500"
+                    style={{ width: `${((job.succeeded + job.failed + job.duplicate) / job.total) * 100}%` }}
+                  />
+                </div>
+              )}
             </div>
           ))}
           {jobs.length === 0 && <p className="text-xs text-gray-400">暂无批量任务</p>}

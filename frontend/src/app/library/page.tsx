@@ -37,6 +37,24 @@ export default function LibraryPage() {
     loadPapers();
   }, [loadPapers]);
 
+  // Auto-poll when there are papers being processed
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    const hasProcessing = papers.some((p) => p.status === "processing");
+    if (hasProcessing && !pollRef.current) {
+      pollRef.current = setInterval(loadPapers, 3000);
+    } else if (!hasProcessing && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [papers, loadPapers]);
+
   const handleUpload = async (file: File) => {
     setUploading(true);
     setError(null);

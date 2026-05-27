@@ -48,29 +48,15 @@ async def upload_batch(
     job_dir = os.path.join(settings.upload_dir, "jobs", job_id)
     os.makedirs(job_dir, exist_ok=True)
     zip_path = save_upload(await file.read(), file.filename, job_dir)
-    pdf_paths = []
-    try:
-        with zipfile.ZipFile(zip_path) as archive:
-            for item in archive.infolist():
-                if item.is_dir() or not item.filename.lower().endswith(".pdf"):
-                    continue
-                original_name = os.path.basename(item.filename) or "paper.pdf"
-                target = os.path.join(job_dir, f"{uuid.uuid4().hex}_{original_name}")
-                with archive.open(item) as source, open(target, "wb") as dest:
-                    dest.write(source.read())
-                pdf_paths.append(target)
-    except zipfile.BadZipFile as exc:
-        raise HTTPException(status_code=400, detail="Invalid zip file") from exc
 
+    # Create job record immediately, extraction happens in background
     async for db in get_db():
-        db.add(IngestionJob(id=job_id, status="queued", total=len(pdf_paths)))
-        for path in pdf_paths:
-            db.add(PaperProcessingTask(job_id=job_id, filename=os.path.basename(path), status="queued"))
+        db.add(IngestionJob(id=job_id, status="extracting", total=0))
         await db.commit()
         break
 
-    background_tasks.add_task(_process_batch, job_id, pdf_paths, auto_mine)
-    return {"job_id": job_id, "status": "queued", "total": len(pdf_paths)}
+    background_tasks.add_task(_process_batch, job_id, zip_path, auto_mine)
+    return {"job_id": job_id, "status": "extracting", "total": 0}
 
 
 @router.get("/ingestion/jobs")
@@ -134,12 +120,59 @@ async def _process_paper(paper_id: str, file_path: str, auto_mine: bool = False)
     # keep PDF file on disk for reference
 
 
-async def _process_batch(job_id: str, pdf_paths: list[str], auto_mine: bool):
+async def _process_batch(job_id: str, zip_path: str, auto_mine: bool):
+    # Phase 1: Extract PDFs from ZIP
+    pdf_paths: list[str] = []
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            items = [i for i in archive.infolist() if not i.is_dir() and i.filename.lower().endswith(".pdf")]
+            total = len(items)
+
+            async for db in get_db():
+                job = await db.get(IngestionJob, job_id)
+                if job:
+                    job.status = "extracting"
+                    job.total = total
+                    job.current_file = f"正在解压 {total} 个文件..."
+                await db.commit()
+                break
+
+            job_dir = os.path.dirname(zip_path)
+            for item in items:
+                original_name = os.path.basename(item.filename) or "paper.pdf"
+                target = os.path.join(job_dir, f"{uuid.uuid4().hex}_{original_name}")
+                with archive.open(item) as source, open(target, "wb") as dest:
+                    dest.write(source.read())
+                pdf_paths.append(target)
+    except zipfile.BadZipFile:
+        async for db in get_db():
+            job = await db.get(IngestionJob, job_id)
+            if job:
+                job.status = "failed"
+                job.error = "Invalid zip file"
+            await db.commit()
+            break
+        return
+
+    if not pdf_paths:
+        async for db in get_db():
+            job = await db.get(IngestionJob, job_id)
+            if job:
+                job.status = "failed"
+                job.error = "No PDF files found in zip"
+            await db.commit()
+            break
+        return
+
+    # Phase 2: Create tasks and start processing
     async for db in get_db():
         job = await db.get(IngestionJob, job_id)
         if job:
             job.status = "running"
-            await db.commit()
+            job.current_file = None
+        for path in pdf_paths:
+            db.add(PaperProcessingTask(job_id=job_id, filename=os.path.basename(path), status="queued"))
+        await db.commit()
         break
 
     for path in pdf_paths:
