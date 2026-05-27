@@ -1,13 +1,24 @@
 import type { Metadata } from "next";
+import { SideNav } from "@/components/side-nav";
 import "./globals.css";
 
-export const metadata: Metadata = { title: "Literature Agent", description: "材料科学文献智能助手" };
+export const metadata: Metadata = {
+  title: "Literature Agent",
+  description: "材料科学文献智能助手",
+};
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="zh-CN" className="dark">
-      <body className="h-screen overflow-hidden bg-slate-950 text-slate-100 font-sans">
-        {children}
+    <html lang="zh-CN">
+      <body className="h-screen overflow-hidden flex">
+        <SideNav />
+        <main className="flex-1 min-w-0 overflow-hidden">
+          {children}
+        </main>
       </body>
     </html>
   );
