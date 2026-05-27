@@ -29,8 +29,11 @@ async def generate_answer_stream(query: str, conversation_history: list[dict] = 
     from backend.services.rag_search import hybrid_search
     from backend.models.database import get_db, Paper
 
+    yield "🔍 正在分析问题...\n"
     rewritten = await rewrite_query(query)
+    yield "\n📚 正在检索文献...\n"
     docs = await hybrid_search(rewritten)
+    yield f"\n✅ 已找到 {len(docs)} 个文献片段\n\n"
 
     # enrich docs with paper titles from DB
     title_cache = {}
