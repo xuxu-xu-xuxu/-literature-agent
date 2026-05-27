@@ -87,7 +87,7 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
       <div className="p-4 border-b border-[#e5e7eb] shrink-0">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold flex items-center gap-2">
-            <Pickaxe className="w-4 h-4 text-emerald-400" />
+            <Pickaxe className="w-4 h-4 text-[#1a2744]" />
             数据挖掘
           </h2>
           <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={load}>
@@ -97,7 +97,7 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
         </div>
         <Button
           size="sm"
-          className="mt-3 w-full gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white"
+          className="mt-3 w-full gap-1.5 bg-[#1a2744] hover:bg-[#2d3f5e] text-white"
           onClick={runAll}
           disabled={loading || extractingId !== null}
         >

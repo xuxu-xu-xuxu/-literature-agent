@@ -70,7 +70,7 @@ export function EntityBrowser() {
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-[#e5e7eb] shrink-0 flex items-center justify-between">
         <h2 className="text-sm font-semibold flex items-center gap-2">
-          <Database className="w-4 h-4 text-emerald-600" />
+          <Database className="w-4 h-4 text-[#1a2744]" />
           实体浏览
         </h2>
         <div className="flex gap-2">
@@ -87,7 +87,7 @@ export function EntityBrowser() {
             size="sm"
             onClick={handleConverge}
             disabled={converging || entities.length === 0}
-            className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-500 text-white"
+            className="h-7 text-xs gap-1 bg-[#1a2744] hover:bg-[#2d3f5e] text-white"
           >
             {converging ? (
               <Loader2 className="w-3 h-3 animate-spin" />
@@ -104,7 +104,7 @@ export function EntityBrowser() {
           <p className="text-xs text-gray-500 mb-1.5">已收敛的同义实体:</p>
           <div className="flex flex-wrap gap-1">
             {synonyms.map((s, i) => (
-              <span key={i} className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span key={i} className="text-xs px-2 py-0.5 rounded bg-[#eef2f8] text-[#1a2744] border border-[#d0d8e8]">
                 {s.canonical} ← {s.variant}
               </span>
             ))}
@@ -128,7 +128,7 @@ export function EntityBrowser() {
         {Object.entries(grouped).map(([type, items]) => (
           <div key={type} className="border-b border-[#e5e7eb] last:border-b-0">
             <div className="px-4 py-2.5 bg-[#fafafa]/30 flex items-center justify-between sticky top-0">
-              <span className="text-xs font-semibold text-emerald-700">{type}</span>
+              <span className="text-xs font-semibold text-[#1a2744]">{type}</span>
               <span className="text-xs text-gray-500">{items.length} 条</span>
             </div>
             {items.map((entity) => (
