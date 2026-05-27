@@ -92,6 +92,41 @@ async def get_ingestion_job(job_id: str):
     return data
 
 
+@router.post("/ingestion/jobs/{job_id}/pause")
+async def pause_ingestion_job(job_id: str):
+    async for db in get_db():
+        job = await db.get(IngestionJob, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job.status in ("extracting", "queued", "running"):
+            job.status = "paused"
+            await db.commit()
+        break
+    return {"job_id": job_id, "status": "paused"}
+
+
+@router.delete("/ingestion/jobs/{job_id}")
+async def cancel_ingestion_job(job_id: str):
+    async for db in get_db():
+        job = await db.get(IngestionJob, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job.status in ("extracting", "queued", "running", "paused"):
+            job.status = "cancelled"
+            # Mark remaining queued tasks as cancelled
+            tasks_result = await db.execute(
+                select(PaperProcessingTask).where(
+                    PaperProcessingTask.job_id == job_id,
+                    PaperProcessingTask.status == "queued",
+                )
+            )
+            for task in tasks_result.scalars().all():
+                task.status = "cancelled"
+            await db.commit()
+        break
+    return {"job_id": job_id, "status": "cancelled"}
+
+
 async def _process_paper(paper_id: str, file_path: str, auto_mine: bool = False):
     from backend.services.extract_service import run_extraction
     from backend.services.solid_electrolyte import extract_solid_electrolyte_records
@@ -176,6 +211,14 @@ async def _process_batch(job_id: str, zip_path: str, auto_mine: bool):
         break
 
     for path in pdf_paths:
+        # Check if job was paused or cancelled
+        async for db in get_db():
+            job = await db.get(IngestionJob, job_id)
+            if job and job.status in ("paused", "cancelled"):
+                break
+        if job and job.status in ("paused", "cancelled"):
+            break
+
         filename = os.path.basename(path)
         async for db in get_db():
             job = await db.get(IngestionJob, job_id)

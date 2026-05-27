@@ -1,9 +1,8 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Database, Loader2, Pickaxe, RefreshCw, FileArchive } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Database, Loader2, Pickaxe, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  fetchIngestionJobs,
   fetchSolidElectrolyteRecords,
   triggerSolidElectrolyteExtraction,
 } from "@/lib/api";
@@ -26,62 +25,25 @@ interface RecordRow {
   confidence: number;
 }
 
-interface IngestionJob {
-  id: string;
-  status: string;
-  total: number;
-  succeeded: number;
-  failed: number;
-  duplicate: number;
-  current_file: string | null;
-}
-
 export function DataMiningPanel({ papers }: { papers: Paper[] }) {
   const [records, setRecords] = useState<RecordRow[]>([]);
-  const [jobs, setJobs] = useState<IngestionJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [extractingId, setExtractingId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     setError("");
     try {
-      const [recordData, jobData] = await Promise.all([
-        fetchSolidElectrolyteRecords({ page_size: 200 }),
-        fetchIngestionJobs(),
-      ]);
+      const recordData = await fetchSolidElectrolyteRecords({ page_size: 200 });
       setRecords(recordData.items || []);
-      setJobs(jobData.items || []);
-      return jobData.items || [];
     } catch {
       setError("加载数据挖掘结果失败");
-      return [];
     }
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
-
-  // Auto-poll when there are active jobs
-  useEffect(() => {
-    const activeJobs = jobs.filter(
-      (j) => j.status === "extracting" || j.status === "queued" || j.status === "running"
-    );
-    if (activeJobs.length > 0 && !pollRef.current) {
-      pollRef.current = setInterval(load, 3000);
-    } else if (activeJobs.length === 0 && pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, [jobs, load]);
 
   const runExtraction = async (paperId: string) => {
     setExtractingId(paperId);
@@ -127,35 +89,6 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
           对已入库文献抽取固态电解质数据
         </Button>
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-      </div>
-
-      <div className="p-3 border-b border-[#e5e7eb]">
-        <p className="text-xs text-gray-500 mb-2">最近批量导入任务</p>
-        <div className="space-y-2 max-h-28 overflow-y-auto">
-          {jobs.slice(0, 3).map((job) => (
-            <div key={job.id} className="text-xs bg-[#fafafa] border border-[#e5e7eb] rounded p-2">
-              <div className="flex justify-between text-gray-700">
-                <span className="flex items-center gap-1">
-                  {job.status === "extracting" && <FileArchive className="w-3 h-3 text-[#1a2744]" />}
-                  {job.status === "running" && <Loader2 className="w-3 h-3 animate-spin text-[#1a2744]" />}
-                  {job.status === "queued" && "⏳ "}
-                  {job.status === "extracting" ? "解压中" : job.status === "queued" ? "排队中" : job.status === "running" ? "处理中" : job.status === "done" ? "已完成" : job.status === "partial_failed" ? "部分失败" : job.status}
-                </span>
-                <span>{job.succeeded + job.failed + job.duplicate}/{job.total || "?"}</span>
-              </div>
-              {job.current_file && <div className="text-gray-500 truncate mt-1">{job.current_file}</div>}
-              {job.status === "running" && job.total > 0 && (
-                <div className="mt-1.5 bg-[#e5e7eb] rounded-full h-1.5 overflow-hidden">
-                  <div
-                    className="bg-[#1a2744] h-full rounded-full transition-all duration-500"
-                    style={{ width: `${((job.succeeded + job.failed + job.duplicate) / job.total) * 100}%` }}
-                  />
-                </div>
-              )}
-            </div>
-          ))}
-          {jobs.length === 0 && <p className="text-xs text-gray-400">暂无批量任务</p>}
-        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">

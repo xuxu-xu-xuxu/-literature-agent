@@ -40,6 +40,18 @@ export async function fetchIngestionJobs() {
   return resp.json();
 }
 
+export async function pauseIngestionJob(jobId: string) {
+  const resp = await fetch(`${BASE}/ingestion/jobs/${jobId}/pause`, { method: "POST" });
+  if (!resp.ok) throw new Error("Failed to pause job");
+  return resp.json();
+}
+
+export async function cancelIngestionJob(jobId: string) {
+  const resp = await fetch(`${BASE}/ingestion/jobs/${jobId}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error("Failed to cancel job");
+  return resp.json();
+}
+
 export async function triggerSolidElectrolyteExtraction(paperId: string) {
   const resp = await fetch(`${BASE}/extract/solid-electrolyte/${paperId}`, { method: "POST" });
   if (!resp.ok) throw new Error("Solid electrolyte extraction failed");

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { SideNav } from "@/components/side-nav";
 import { Providers } from "./providers";
+import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,10 +17,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body className="h-screen overflow-hidden flex">
         <Providers>
-          <SideNav />
-          <main className="flex-1 min-w-0 overflow-hidden">
-            {children}
-          </main>
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>
