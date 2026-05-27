@@ -1,26 +1,56 @@
-import { User, Bot } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 interface Props {
   role: "user" | "assistant";
   content: string;
+  citations?: { paper_id: string; title: string; author: string; year: number }[];
 }
 
-export function ChatMessage({ role, content }: Props) {
+export function ChatMessage({ role, content, citations }: Props) {
   const isUser = role === "user";
+
   return (
-    <div className={`flex gap-3 px-6 py-4 ${isUser ? "bg-slate-900/50" : "bg-slate-950"}`}>
-      <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isUser ? "bg-blue-600" : "bg-emerald-600"}`}>
-        {isUser ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
-      </div>
-      <div className="flex-1 min-w-0">
-        {isUser ? (
-          <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap break-words">
-            {content}
-          </div>
-        ) : (
-          <div className="prose prose-sm prose-invert max-w-none text-slate-300 leading-relaxed [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_strong]:text-slate-100 [&_code]:bg-slate-800 [&_code]:px-1 [&_code]:rounded [&_pre]:bg-slate-800 [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:border-slate-600 [&_blockquote]:pl-3 [&_blockquote]:text-slate-400 [&_a]:text-blue-400 [&_a]:underline [&_hr]:border-slate-700 [&_table]:border-collapse [&_th]:border [&_th]:border-slate-600 [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:border-slate-600 [&_td]:px-2 [&_td]:py-1">
-            <ReactMarkdown>{content || "思考中..."}</ReactMarkdown>
+    <div
+      className={`flex ${isUser ? "justify-end" : "justify-start"} px-4 py-2`}
+    >
+      <div className={`max-w-[75%] ${isUser ? "items-end" : "items-start"} flex flex-col`}>
+        {/* Bubble */}
+        <div
+          className={`px-4 py-2.5 text-sm leading-relaxed ${
+            isUser
+              ? "text-white rounded-bubble rounded-br-[2px]"
+              : "text-gray-700 bg-[#f8f9fb] border border-[#e5e7eb] rounded-bubble rounded-bl-[2px]"
+          }`}
+          style={isUser ? { backgroundColor: "#1a2744" } : {}}
+        >
+          {isUser ? (
+            <span className="whitespace-pre-wrap break-words">{content}</span>
+          ) : (
+            <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed
+              [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_strong]:text-gray-900
+              [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:rounded [&_pre]:bg-gray-100
+              [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto
+              [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5
+              [&_blockquote]:border-l-2 [&_blockquote]:border-gray-300 [&_blockquote]:pl-3 [&_blockquote]:text-gray-500
+              [&_a]:text-[#2c5282] [&_a]:underline [&_hr]:border-gray-200
+              [&_table]:border-collapse [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1
+              [&_td]:border [&_td]:border-gray-300 [&_td]:px-2 [&_td]:py-1">
+              <ReactMarkdown>{content || "思考中..."}</ReactMarkdown>
+            </div>
+          )}
+        </div>
+
+        {/* Citations for AI responses */}
+        {!isUser && citations && citations.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {citations.map((c, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] text-[#2c5282] bg-[#eef2f8] rounded"
+              >
+                {c.title} · {c.author} ({c.year})
+              </span>
+            ))}
           </div>
         )}
       </div>
