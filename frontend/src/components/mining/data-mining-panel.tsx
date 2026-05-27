@@ -83,8 +83,8 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
   };
 
   return (
-    <div className="h-full flex flex-col bg-slate-950">
-      <div className="p-4 border-b border-slate-800 shrink-0">
+    <div className="h-full flex flex-col">
+      <div className="p-4 border-b border-[#e5e7eb] shrink-0">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold flex items-center gap-2">
             <Pickaxe className="w-4 h-4 text-emerald-400" />
@@ -107,31 +107,31 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
       </div>
 
-      <div className="p-3 border-b border-slate-800">
-        <p className="text-xs text-slate-500 mb-2">最近批量导入任务</p>
+      <div className="p-3 border-b border-[#e5e7eb]">
+        <p className="text-xs text-gray-500 mb-2">最近批量导入任务</p>
         <div className="space-y-2 max-h-28 overflow-y-auto">
           {jobs.slice(0, 3).map((job) => (
-            <div key={job.id} className="text-xs bg-slate-900 border border-slate-800 rounded p-2">
-              <div className="flex justify-between text-slate-300">
+            <div key={job.id} className="text-xs bg-[#fafafa] border border-[#e5e7eb] rounded p-2">
+              <div className="flex justify-between text-gray-700">
                 <span>{job.status}</span>
                 <span>{job.succeeded + job.failed + job.duplicate}/{job.total}</span>
               </div>
-              {job.current_file && <div className="text-slate-500 truncate mt-1">{job.current_file}</div>}
+              {job.current_file && <div className="text-gray-500 truncate mt-1">{job.current_file}</div>}
             </div>
           ))}
-          {jobs.length === 0 && <p className="text-xs text-slate-600">暂无批量任务</p>}
+          {jobs.length === 0 && <p className="text-xs text-gray-400">暂无批量任务</p>}
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
         <div className="space-y-2">
           {records.map((record) => (
-            <div key={record.id} className="rounded border border-slate-800 bg-slate-900/60 p-3">
+            <div key={record.id} className="rounded border border-[#e5e7eb] bg-white p-3">
               <div className="flex items-center justify-between gap-2">
-                <div className="font-medium text-sm text-slate-100">{record.material_formula}</div>
-                <span className="text-[11px] text-slate-500">{record.method}</span>
+                <div className="font-medium text-sm text-gray-900">{record.material_formula}</div>
+                <span className="text-[11px] text-gray-500">{record.method}</span>
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-400">
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-400">
                 <span>电导率: {record.conductivity_s_cm?.toExponential(2) ?? "-" } S/cm</span>
                 <span>温度: {record.temperature_k ? `${record.temperature_k.toFixed(1)} K` : "-"}</span>
                 <span>晶体态: {record.is_crystalline === null ? "未知" : record.is_crystalline ? "是" : "否"}</span>
@@ -142,22 +142,22 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
             </div>
           ))}
           {records.length === 0 && (
-            <div className="py-12 text-center text-sm text-slate-500">
+            <div className="py-12 text-center text-sm text-gray-500">
               暂无结构化记录。上传文献后点击抽取按钮生成化学式、电导率、温度和方法数据。
             </div>
           )}
         </div>
       </div>
 
-      <div className="p-3 border-t border-slate-800 max-h-44 overflow-y-auto">
-        <p className="text-xs text-slate-500 mb-2">单篇抽取</p>
+      <div className="p-3 border-t border-[#e5e7eb] max-h-44 overflow-y-auto">
+        <p className="text-xs text-gray-500 mb-2">单篇抽取</p>
         <div className="space-y-1">
           {papers.filter((p) => p.status === "ingested").slice(0, 20).map((paper) => (
             <button
               key={paper.id}
               onClick={() => runExtraction(paper.id)}
               disabled={extractingId !== null}
-              className="w-full text-left text-xs px-2 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 disabled:opacity-50 truncate"
+              className="w-full text-left text-xs px-2 py-1.5 rounded bg-[#fafafa] hover:bg-[#f0f0f0] text-gray-700 disabled:opacity-50 truncate"
             >
               {extractingId === paper.id ? "抽取中..." : paper.title}
             </button>

@@ -48,30 +48,30 @@ export function AnalyticsPanel() {
   }, [kind, metric]);
 
   return (
-    <div className="h-full flex flex-col bg-slate-950">
-      <div className="p-4 border-b border-slate-800 shrink-0">
+    <div className="h-full flex flex-col">
+      <div className="p-4 border-b border-[#e5e7eb] shrink-0">
         <h2 className="text-sm font-semibold flex items-center gap-2">
-          <BarChart3 className="w-4 h-4 text-blue-400" />
+          <BarChart3 className="w-4 h-4 text-[#2c5282]" />
           一键可视化
         </h2>
         <div className="mt-3 grid grid-cols-3 gap-2">
-          <Button size="sm" variant={kind === "element" ? "default" : "outline"} onClick={() => setKind("element")} className="gap-1">
+          <Button size="sm" variant={kind === "element" ? "default" : "outline"} onClick={() => setKind("element")} className="gap-1 bg-[#1a2744] hover:bg-[#2d3f5e]">
             <BarChart3 className="w-3.5 h-3.5" />
             元素
           </Button>
-          <Button size="sm" variant={kind === "method" ? "default" : "outline"} onClick={() => setKind("method")} className="gap-1">
+          <Button size="sm" variant={kind === "method" ? "default" : "outline"} onClick={() => setKind("method")} className="gap-1 bg-[#1a2744] hover:bg-[#2d3f5e]">
             <PieChart className="w-3.5 h-3.5" />
             方法
           </Button>
-          <Button size="sm" variant={kind === "temperature" ? "default" : "outline"} onClick={() => setKind("temperature")} className="gap-1">
+          <Button size="sm" variant={kind === "temperature" ? "default" : "outline"} onClick={() => setKind("temperature")} className="gap-1 bg-[#1a2744] hover:bg-[#2d3f5e]">
             <LineChart className="w-3.5 h-3.5" />
             温度
           </Button>
         </div>
         {kind === "element" && (
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <Button size="sm" variant={metric === "avg" ? "default" : "outline"} onClick={() => setMetric("avg")}>平均值</Button>
-            <Button size="sm" variant={metric === "median" ? "default" : "outline"} onClick={() => setMetric("median")}>中位数</Button>
+            <Button size="sm" variant={metric === "avg" ? "default" : "outline"} onClick={() => setMetric("avg")} className="bg-[#1a2744] hover:bg-[#2d3f5e]">平均值</Button>
+            <Button size="sm" variant={metric === "median" ? "default" : "outline"} onClick={() => setMetric("median")} className="bg-[#1a2744] hover:bg-[#2d3f5e]">中位数</Button>
           </div>
         )}
       </div>
@@ -79,7 +79,7 @@ export function AnalyticsPanel() {
       <div className="flex-1 overflow-y-auto">
         {loading && (
           <div className="py-16 flex justify-center">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
+            <Loader2 className="w-6 h-6 animate-spin text-[#2c5282]" />
           </div>
         )}
         {error && <p className="p-4 text-sm text-red-400">{error}</p>}
@@ -87,20 +87,20 @@ export function AnalyticsPanel() {
           <>
             <ChartContainer option={result.echarts_option} title={result.title} />
             <div className="px-4 pb-4">
-              <div className="overflow-x-auto rounded border border-slate-800">
+              <div className="overflow-x-auto rounded border border-[#e5e7eb]">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="bg-slate-900">
+                    <tr className="bg-[#fafafa]">
                       {Object.keys(result.data?.[0] || {}).map((key) => (
-                        <th key={key} className="px-3 py-2 text-left text-slate-400">{key}</th>
+                        <th key={key} className="px-3 py-2 text-left text-gray-400">{key}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {(result.data || []).map((row: Record<string, unknown>, i: number) => (
-                      <tr key={i} className="border-t border-slate-800">
+                      <tr key={i} className="border-t border-[#e5e7eb]">
                         {Object.values(row).map((value, j) => (
-                          <td key={j} className="px-3 py-2 text-slate-300">{String(value)}</td>
+                          <td key={j} className="px-3 py-2 text-gray-600">{String(value)}</td>
                         ))}
                       </tr>
                     ))}

@@ -6,22 +6,24 @@ interface Props {
   title: string;
 }
 
-const darkTheme = {
+const lightTheme = {
   backgroundColor: "transparent",
-  textStyle: { color: "#94a3b8" },
-  legend: { textStyle: { color: "#94a3b8" } },
+  textStyle: { color: "#374151" },
+  legend: { textStyle: { color: "#6b7280" } },
 };
 
 export function ChartContainer({ option, title }: Props) {
   const mergedOption = {
-    ...darkTheme,
+    ...lightTheme,
     ...option,
   };
 
   return (
     <div className="p-4">
-      <h3 className="text-sm font-semibold mb-3 text-slate-300">{title}</h3>
-      <div className="bg-slate-900 rounded-lg p-2">
+      <h3 className="text-sm font-heading font-semibold mb-3 text-[#1a2744]">
+        {title}
+      </h3>
+      <div className="bg-white border border-[#e5e7eb] rounded-lg p-2">
         <ReactECharts option={mergedOption} style={{ height: "280px" }} />
       </div>
     </div>
