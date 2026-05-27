@@ -34,22 +34,22 @@ export function VizPanel() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-4 border-b border-slate-800 shrink-0">
+      <div className="p-4 border-b border-[#e5e7eb] shrink-0">
         <h2 className="text-sm font-semibold flex items-center gap-2">
-          <BarChart3 className="w-4 h-4 text-blue-400" />
+          <BarChart3 className="w-4 h-4 text-[#2c5282]" />
           分析面板
         </h2>
       </div>
 
       {/* Input area */}
-      <div className="p-3 border-b border-slate-800 shrink-0">
+      <div className="p-3 border-b border-[#e5e7eb] shrink-0">
         <div className="flex gap-2">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleVisualize()}
             placeholder="描述你想要的可视化，例如：比较不同材料的疲劳强度..."
-            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50"
+            className="flex-1 bg-white border border-[#e5e7eb] rounded-lg px-3 py-2 text-sm text-gray-800 placeholder:text-gray-500 focus:outline-none focus:border-[#2c5282]/50"
           />
           <Button
             size="sm"
@@ -72,17 +72,17 @@ export function VizPanel() {
       <div className="flex-1 overflow-y-auto">
         {loading && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
-            <p className="text-sm text-slate-500">正在分析数据并生成图表...</p>
+            <Loader2 className="w-6 h-6 text-[#2c5282] animate-spin" />
+            <p className="text-sm text-gray-500">正在分析数据并生成图表...</p>
           </div>
         )}
 
         {!loading && !result && (
           <div className="flex flex-col items-center justify-center py-16 px-4 gap-4">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600/20 to-violet-600/20 flex items-center justify-center">
-              <BarChart3 className="w-8 h-8 text-blue-400/60" />
+              <BarChart3 className="w-8 h-8 text-[#2c5282]/60" />
             </div>
-            <p className="text-sm text-slate-500 text-center">
+            <p className="text-sm text-gray-500 text-center">
               输入自然语言描述，AI 将自动查询数据库并生成图表
             </p>
             <div className="flex flex-wrap gap-1.5 justify-center">
@@ -91,7 +91,7 @@ export function VizPanel() {
                   <button
                     key={hint}
                     onClick={() => setQuery(hint)}
-                    className="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+                    className="text-xs px-2.5 py-1 rounded-full bg-white text-gray-400 hover:text-gray-800 hover:bg-[#eef2f8] transition-colors"
                   >
                     {hint}
                   </button>
@@ -106,19 +106,19 @@ export function VizPanel() {
             <ChartContainer option={result.echarts_option} title={result.title} />
             {result.explanation && (
               <div className="px-4 pb-4">
-                <p className="text-xs text-slate-400 leading-relaxed bg-slate-900/50 rounded-lg p-3 border border-slate-800">
+                <p className="text-xs text-gray-400 leading-relaxed bg-[#fafafa]/50 rounded-lg p-3 border border-[#e5e7eb]">
                   {result.explanation}
                 </p>
               </div>
             )}
             {result.data && result.data.length > 0 && (
               <div className="px-4 pb-4">
-                <div className="overflow-x-auto rounded-lg border border-slate-800">
+                <div className="overflow-x-auto rounded-lg border border-[#e5e7eb]">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="bg-slate-900">
+                      <tr className="bg-[#fafafa]">
                         {Object.keys(result.data[0] as object).map((key) => (
-                          <th key={key} className="px-3 py-2 text-left text-slate-400 font-medium">
+                          <th key={key} className="px-3 py-2 text-left text-gray-400 font-medium">
                             {key}
                           </th>
                         ))}
@@ -126,9 +126,9 @@ export function VizPanel() {
                     </thead>
                     <tbody>
                       {(result.data as Record<string, unknown>[]).map((row, i) => (
-                        <tr key={i} className="border-t border-slate-800 hover:bg-slate-900/50">
+                        <tr key={i} className="border-t border-[#e5e7eb] hover:bg-[#fafafa]/50">
                           {Object.values(row).map((val, j) => (
-                            <td key={j} className="px-3 py-2 text-slate-300">
+                            <td key={j} className="px-3 py-2 text-gray-700">
                               {String(val)}
                             </td>
                           ))}
