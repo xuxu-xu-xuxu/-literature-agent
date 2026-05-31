@@ -9,7 +9,11 @@ import {
   fetchIngestionJobs,
   pauseIngestionJob,
   cancelIngestionJob,
+  fetchCategories,
+  triggerClassify,
+  triggerClustering,
 } from "@/lib/api";
+import { CategorySidebar } from "@/components/library/category-sidebar";
 
 interface Paper {
   id: string;
@@ -31,7 +35,17 @@ interface IngestionJob {
 
 export default function LibraryPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
+  const [totalPapers, setTotalPapers] = useState(0);
+  const [globalTotal, setGlobalTotal] = useState(0); // unfiltered total, never changes with tag
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
   const [jobs, setJobs] = useState<IngestionJob[]>([]);
+
+  interface CategoryData { tag: string; count: number; category: string; }
+  const [categories, setCategories] = useState<CategoryData[]>([]);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [classifying, setClassifying] = useState(false);
+  const [clustering, setClustering] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "error" | "info" } | null>(null);
@@ -40,12 +54,13 @@ export default function LibraryPage() {
 
   const loadPapers = useCallback(async () => {
     try {
-      const data = await fetchPapers({ keyword: keyword || undefined });
+      const data = await fetchPapers({ keyword: keyword || undefined, page, page_size: pageSize, tag: selectedTag || undefined });
       setPapers(data.items || []);
+      setTotalPapers(data.total || 0);
     } catch {
       setMessage({ text: "加载文献列表失败", type: "error" });
     }
-  }, [keyword]);
+  }, [keyword, page, selectedTag]);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -54,10 +69,39 @@ export default function LibraryPage() {
     } catch {}
   }, []);
 
+  const loadCategories = useCallback(async () => {
+    try {
+      const data = await fetchCategories();
+      setCategories(data || []);
+    } catch {}
+  }, []);
+
+  // Fetch unfiltered total once
+  useEffect(() => {
+    fetchPapers({ page: 1, page_size: 1 }).then((data) => setGlobalTotal(data.total || 0)).catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadPapers();
     loadJobs();
-  }, [loadPapers, loadJobs]);
+    loadCategories();
+  }, [loadPapers, loadJobs, loadCategories]);
+
+  // Reset page when tag changes
+  useEffect(() => { setPage(1); }, [selectedTag]);
+
+  // Poll categories while classifying/clustering
+  useEffect(() => {
+    if (!classifying && !clustering) return;
+    const interval = setInterval(loadCategories, 5000);
+    return () => clearInterval(interval);
+  }, [classifying, clustering, loadCategories]);
+
+  // Auto-stop classifying/clustering when results appear
+  useEffect(() => {
+    if (classifying && categories.length > 0) setClassifying(false);
+    if (clustering && categories.some((c) => c.category === "聚类结果")) setClustering(false);
+  }, [categories, classifying, clustering]);
 
   // Auto-poll when there are active jobs or processing papers
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -131,6 +175,26 @@ export default function LibraryPage() {
     } catch {}
   };
 
+  const handleClassify = async () => {
+    setClassifying(true);
+    try {
+      await triggerClassify();
+    } catch {
+      setMessage({ text: "启动分类失败", type: "error" });
+      setClassifying(false);
+    }
+  };
+
+  const handleCluster = async () => {
+    setClustering(true);
+    try {
+      await triggerClustering();
+    } catch {
+      setMessage({ text: "启动聚类失败", type: "error" });
+      setClustering(false);
+    }
+  };
+
   const statusLabel = (s: string) => {
     switch (s) {
       case "extracting": return "解压中";
@@ -146,14 +210,25 @@ export default function LibraryPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-6 py-8">
+    <div className="h-full flex">
+      <CategorySidebar
+        categories={categories}
+        selectedTag={selectedTag}
+        onSelectTag={setSelectedTag}
+        onClassify={handleClassify}
+        onCluster={handleCluster}
+        classifying={classifying}
+        clustering={clustering}
+        totalPapers={globalTotal}
+      />
+      <div className="flex-1 overflow-y-auto min-w-0">
+        <div className="max-w-5xl mx-auto px-6 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-heading text-[#1a2744]">文献库</h1>
             <p className="text-sm text-gray-500 mt-1">
-              共 {papers.length} 篇文献
+              共 {totalPapers} 篇文献
             </p>
           </div>
           <div className="flex gap-3">
@@ -180,20 +255,29 @@ export default function LibraryPage() {
           }`}>{message.text}</div>
         )}
 
-        {/* Active Batch Jobs */}
-        {jobs.filter((j) => j.status !== "done" && j.status !== "cancelled").length > 0 && (
+        {/* Batch Jobs — show all non-deleted jobs */}
+        {jobs.length > 0 && (
           <div className="mb-6 space-y-3">
             <h2 className="text-sm font-heading font-semibold text-[#1a2744]">批量导入任务</h2>
-            {jobs.filter((j) => j.status !== "done" && j.status !== "cancelled").slice(0, 5).map((job) => (
+            {jobs.map((job) => {
+              const isActive = job.status === "extracting" || job.status === "queued" || job.status === "running" || job.status === "paused";
+              return (
               <div key={job.id} className="border border-[#e5e7eb] rounded-lg bg-white p-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     {job.status === "extracting" && <FileArchive className="w-4 h-4 text-[#1a2744]" />}
                     {job.status === "running" && <Loader2 className="w-4 h-4 animate-spin text-[#1a2744]" />}
                     {job.status === "paused" && <Pause className="w-4 h-4 text-amber-500" />}
+                    {job.status === "done" && <div className="w-2 h-2 rounded-full bg-green-500" />}
+                    {job.status === "partial_failed" && <div className="w-2 h-2 rounded-full bg-amber-500" />}
+                    {job.status === "failed" && <div className="w-2 h-2 rounded-full bg-red-500" />}
+                    {job.status === "cancelled" && <div className="w-2 h-2 rounded-full bg-gray-400" />}
                     <span className="text-sm font-medium text-gray-700">{statusLabel(job.status)}</span>
                     <span className="text-xs text-gray-500">
                       {job.succeeded + job.failed + job.duplicate}/{job.total || "?"} 篇
+                      {job.succeeded > 0 && ` (成功${job.succeeded})`}
+                      {job.failed > 0 && ` (失败${job.failed})`}
+                      {job.duplicate > 0 && ` (重复${job.duplicate})`}
                     </span>
                   </div>
                   <div className="flex gap-2">
@@ -209,7 +293,7 @@ export default function LibraryPage() {
                     </button>
                   </div>
                 </div>
-                {job.total > 0 && (
+                {isActive && job.total > 0 && (
                   <div className="bg-[#e5e7eb] rounded-full h-2 overflow-hidden">
                     <div className="bg-[#1a2744] h-full rounded-full transition-all duration-500"
                       style={{ width: `${((job.succeeded + job.failed + job.duplicate) / job.total) * 100}%` }} />
@@ -219,14 +303,14 @@ export default function LibraryPage() {
                   <div className="text-xs text-gray-500 mt-2 truncate">当前: {job.current_file}</div>
                 )}
               </div>
-            ))}
+            )})}
           </div>
         )}
 
         {/* Search */}
         <div className="relative mb-4">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-          <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索标题..."
+          <input value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} placeholder="搜索标题..."
             className="w-full pl-9 pr-4 py-2 border border-[#e5e7eb] rounded-lg text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:border-[#1a2744] focus:ring-1 focus:ring-[#1a2744]" />
         </div>
 
@@ -260,6 +344,30 @@ export default function LibraryPage() {
             </div>
           ))}
         </div>
+
+        {/* Pagination */}
+        {totalPapers > pageSize && (
+          <div className="flex items-center justify-center gap-4 mt-4 text-sm text-gray-600">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="px-3 py-1.5 border border-[#e5e7eb] rounded-md hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              上一页
+            </button>
+            <span className="text-gray-500">
+              第 {page} 页 / 共 {Math.ceil(totalPapers / pageSize)} 页（{totalPapers} 篇）
+            </span>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= Math.ceil(totalPapers / pageSize)}
+              className="px-3 py-1.5 border border-[#e5e7eb] rounded-md hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              下一页
+            </button>
+          </div>
+        )}
+      </div>
       </div>
     </div>
   );

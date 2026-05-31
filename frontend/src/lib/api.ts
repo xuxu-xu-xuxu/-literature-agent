@@ -2,9 +2,11 @@ const BASE = "/api";
 
 export async function fetchPapers(params?: {
   page?: number;
+  page_size?: number;
   keyword?: string;
   year_from?: number;
   year_to?: number;
+  tag?: string;
 }) {
   const searchParams = new URLSearchParams();
   if (params) {
@@ -106,7 +108,14 @@ export async function visualizeQuery(query: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),
   });
-  if (!resp.ok) throw new Error("Visualization failed");
+  if (!resp.ok) {
+    let detail = `可视化失败 (HTTP ${resp.status})`;
+    try {
+      const body = await resp.json();
+      detail = body.detail || detail;
+    } catch {}
+    throw new Error(detail);
+  }
   return resp.json();
 }
 
@@ -156,5 +165,30 @@ export async function fetchConductivityByMethod() {
 export async function fetchConductivityByTemperature() {
   const resp = await fetch(`${BASE}/analytics/conductivity/by-temperature`);
   if (!resp.ok) throw new Error("Failed to fetch conductivity by temperature");
+  return resp.json();
+}
+
+// ── Classification APIs ─────────────────────────────────────────────
+export async function fetchCategories() {
+  const resp = await fetch(`${BASE}/papers/categories`);
+  if (!resp.ok) throw new Error("Failed to fetch categories");
+  return resp.json();
+}
+
+export async function triggerClassify() {
+  const resp = await fetch(`${BASE}/papers/classify`, { method: "POST" });
+  if (!resp.ok) throw new Error("Failed to trigger classification");
+  return resp.json();
+}
+
+export async function triggerClassifyPaper(paperId: string) {
+  const resp = await fetch(`${BASE}/papers/classify/${paperId}`, { method: "POST" });
+  if (!resp.ok) throw new Error("Failed to classify paper");
+  return resp.json();
+}
+
+export async function triggerClustering() {
+  const resp = await fetch(`${BASE}/papers/cluster`, { method: "POST" });
+  if (!resp.ok) throw new Error("Failed to trigger clustering");
   return resp.json();
 }

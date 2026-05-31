@@ -1,9 +1,9 @@
 import os
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, func
-from backend.models.database import get_db, Paper, Entity, EntitySchema, EntitySynonym, SolidElectrolyteRecord
+from backend.models.database import get_db, Paper, PaperTag, Entity, EntitySchema, EntitySynonym, SolidElectrolyteRecord
 from backend.models.schemas import PaperOut, PaperDetailOut, PaperListParams
 from backend.services.ingestion import init_milvus, init_es
 
@@ -21,12 +21,26 @@ async def list_papers(params: PaperListParams = Depends()):
             query = query.where(Paper.year >= params.year_from)
         if params.year_to is not None:
             query = query.where(Paper.year <= params.year_to)
+        if params.tag:
+            tag_sub = select(PaperTag.paper_id).where(PaperTag.tag == params.tag)
+            query = query.where(Paper.id.in_(tag_sub))
         query = query.offset((params.page - 1) * params.page_size).limit(params.page_size)
+
+        # Build count query with same filters
+        count_query = select(func.count()).select_from(Paper)
+        if params.tag:
+            count_query = count_query.where(Paper.id.in_(tag_sub))
+        if params.keyword:
+            count_query = count_query.where(Paper.title.ilike(f"%{params.keyword}%"))
+        if params.year_from is not None:
+            count_query = count_query.where(Paper.year >= params.year_from)
+        if params.year_to is not None:
+            count_query = count_query.where(Paper.year <= params.year_to)
 
         result = await db.execute(query)
         papers = result.scalars().all()
 
-        count_result = await db.execute(select(func.count()).select_from(Paper))
+        count_result = await db.execute(count_query)
         total = count_result.scalar()
         break
 
@@ -37,6 +51,45 @@ async def list_papers(params: PaperListParams = Depends()):
         "page_size": params.page_size,
     }
 
+
+# ── Classification endpoints (BEFORE {paper_id} to avoid route conflict) ──
+
+@router.get("/papers/categories")
+async def get_categories():
+    from backend.services.classify_service import get_categories as get_cats
+    return await get_cats()
+
+
+@router.post("/papers/classify")
+async def classify_all(background_tasks: BackgroundTasks):
+    from backend.services.classify_service import classify_all_papers
+    background_tasks.add_task(classify_all_papers)
+    return {"status": "classification_started"}
+
+
+@router.post("/papers/classify/{paper_id}")
+async def classify_single(paper_id: str, background_tasks: BackgroundTasks):
+    async for db in get_db():
+        paper = await db.get(Paper, paper_id)
+        if not paper:
+            raise HTTPException(status_code=404, detail="Paper not found")
+        break
+    from backend.services.classify_service import classify_single_paper
+    background_tasks.add_task(classify_single_paper, paper_id)
+    return {"paper_id": paper_id, "status": "classification_started"}
+
+
+@router.post("/papers/cluster")
+async def cluster(
+    background_tasks: BackgroundTasks,
+    n_clusters: int = Query(default=8, ge=2, le=20),
+):
+    from backend.services.classify_service import cluster_papers
+    background_tasks.add_task(cluster_papers, n_clusters)
+    return {"status": "clustering_started"}
+
+
+# ── Paper detail & delete (with {paper_id} path param) ──
 
 @router.get("/papers/{paper_id}")
 async def get_paper(paper_id: str):
@@ -55,7 +108,13 @@ async def delete_paper(paper_id: str):
             raise HTTPException(status_code=404, detail="Paper not found")
         file_path = paper.file_path
 
-        # Delete related entities and schemas first (FK constraint)
+        # Delete related tags, entities and schemas first (FK constraint)
+        tags = (await db.execute(
+            select(PaperTag).where(PaperTag.paper_id == paper_id)
+        )).scalars().all()
+        for t in tags:
+            await db.delete(t)
+
         schemas = (await db.execute(
             select(EntitySchema).where(EntitySchema.paper_id == paper_id)
         )).scalars().all()
@@ -76,8 +135,7 @@ async def delete_paper(paper_id: str):
 
         await db.delete(paper)
 
-        # Clean up orphaned synonyms — delete synonyms whose canonical
-        # or variant no longer appears in the remaining entity types
+        # Clean up orphaned synonyms
         remaining_types = (await db.execute(select(Entity.entity_type).distinct())).scalars().all()
         remaining_types_set = set(remaining_types)
         if remaining_types_set:

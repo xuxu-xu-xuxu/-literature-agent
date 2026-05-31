@@ -1,13 +1,17 @@
+import logging
 import os
 import uuid
 import zipfile
 
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Form, HTTPException
 from sqlalchemy import select
+
 from backend.models.database import get_db, IngestionJob, Paper, PaperProcessingTask
 from backend.services.pdf_service import save_upload, compute_paper_id
 from backend.services.ingestion import ingest_pdf
 from backend.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["upload"])
 
@@ -123,6 +127,19 @@ async def cancel_ingestion_job(job_id: str):
             for task in tasks_result.scalars().all():
                 task.status = "cancelled"
             await db.commit()
+        elif job.status in ("done", "partial_failed", "failed", "cancelled"):
+            # Hard-delete completed/failed/cancelled jobs and their tasks
+            tasks_result = await db.execute(
+                select(PaperProcessingTask).where(
+                    PaperProcessingTask.job_id == job_id,
+                )
+            )
+            for task in tasks_result.scalars().all():
+                await db.delete(task)
+            await db.delete(job)
+            await db.commit()
+            # Clean up job directory (ZIP + extracted PDFs not referenced by any Paper)
+            _cleanup_job_files(job_id)
         break
     return {"job_id": job_id, "status": "cancelled"}
 
@@ -158,6 +175,7 @@ async def _process_paper(paper_id: str, file_path: str, auto_mine: bool = False)
 async def _process_batch(job_id: str, zip_path: str, auto_mine: bool):
     # Phase 1: Extract PDFs from ZIP
     pdf_paths: list[str] = []
+    orphan_paths: list[str] = []  # extracted PDFs that turned out to be duplicates, safe to delete
     try:
         with zipfile.ZipFile(zip_path) as archive:
             items = [i for i in archive.infolist() if not i.is_dir() and i.filename.lower().endswith(".pdf")]
@@ -259,6 +277,7 @@ async def _process_batch(job_id: str, zip_path: str, auto_mine: bool):
                 break
 
             if duplicate:
+                orphan_paths.append(path)  # No Paper record references this file
                 async for db in get_db():
                     job = await db.get(IngestionJob, job_id)
                     task = (await db.execute(
@@ -316,6 +335,71 @@ async def _process_batch(job_id: str, zip_path: str, auto_mine: bool):
             job.current_file = None
             await db.commit()
         break
+
+    # Clean up temporary files to avoid disk bloat
+    for path in orphan_paths:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                logger.info("Cleaned up duplicate PDF: %s", path)
+        except Exception as e:
+            logger.warning("Failed to clean up duplicate PDF %s: %s", path, e)
+    try:
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+            logger.info("Cleaned up batch ZIP: %s", zip_path)
+    except Exception as e:
+        logger.warning("Failed to clean up batch ZIP %s: %s", zip_path, e)
+
+
+def _cleanup_job_files(job_id: str):
+    """Sync wrapper: schedule async cleanup of orphan job files."""
+    import asyncio
+
+    async def _cleanup():
+        # Collect file paths referenced by Paper records
+        referenced: set[str] = set()
+        async for db_sess in get_db():
+            result = await db_sess.execute(
+                select(Paper.file_path).where(Paper.file_path.like(f"%jobs/{job_id}%"))
+            )
+            for row in result.scalars().all():
+                referenced.add(os.path.normpath(row))
+            break
+
+        settings = get_settings()
+        job_dir = os.path.join(settings.upload_dir, "jobs", job_id)
+        if not os.path.isdir(job_dir):
+            return
+
+        # Remove unreferenced files
+        for root, dirs, files in os.walk(job_dir, topdown=False):
+            for name in files:
+                file_path = os.path.normpath(os.path.join(root, name))
+                if file_path not in referenced:
+                    try:
+                        os.remove(file_path)
+                        logger.info("Cleaned up orphan job file: %s", file_path)
+                    except Exception as e:
+                        logger.warning("Failed to remove %s: %s", file_path, e)
+            if root != job_dir and not os.listdir(root):
+                try:
+                    os.rmdir(root)
+                except Exception:
+                    pass
+
+        # Remove job directory if empty
+        if os.path.isdir(job_dir) and not os.listdir(job_dir):
+            try:
+                os.rmdir(job_dir)
+                logger.info("Removed empty job directory: %s", job_dir)
+            except Exception as e:
+                logger.warning("Failed to remove job directory %s: %s", job_dir, e)
+
+    try:
+        asyncio.ensure_future(_cleanup())
+    except Exception:
+        pass
 
 
 def _job_to_dict(job: IngestionJob) -> dict:

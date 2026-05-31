@@ -30,6 +30,7 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
   const [loading, setLoading] = useState(false);
   const [extractingId, setExtractingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
 
   const load = useCallback(async () => {
     setError("");
@@ -48,9 +49,16 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
   const runExtraction = async (paperId: string) => {
     setExtractingId(paperId);
     setError("");
+    setSuccessMsg("");
     try {
-      await triggerSolidElectrolyteExtraction(paperId);
+      const result = await triggerSolidElectrolyteExtraction(paperId);
       await load();
+      const count = result?.record_count ?? 0;
+      if (count > 0) {
+        setSuccessMsg(`抽取完成：从该文献中提取了 ${count} 条记录`);
+      } else {
+        setError("抽取完成，但未从该文献中找到固态电解质数据（可能文本中无电导率数据或格式不支持）");
+      }
     } catch {
       setError("抽取失败，请检查后端日志或 LLM 配置");
     } finally {
@@ -89,6 +97,7 @@ export function DataMiningPanel({ papers }: { papers: Paper[] }) {
           对已入库文献抽取固态电解质数据
         </Button>
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+        {successMsg && <p className="mt-2 text-xs text-green-600">{successMsg}</p>}
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">

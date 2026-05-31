@@ -25,15 +25,28 @@ async def rewrite_query(query: str) -> str:
     return await llm.chat([{"role": "user", "content": prompt}])
 
 
-async def generate_answer_stream(query: str, conversation_history: list[dict] = None):
+async def generate_answer_stream(query: str, conversation_history: list[dict] = None, scope_paper_ids: list[str] | None = None):
     from backend.services.rag_search import hybrid_search
     from backend.models.database import get_db, Paper
+    from sqlalchemy import func, select as sa_select
 
     yield "🔍 正在分析问题...\n"
     rewritten = await rewrite_query(query)
     yield "\n📚 正在检索文献...\n"
-    docs = await hybrid_search(rewritten)
-    yield f"\n✅ 已找到 {len(docs)} 个文献片段\n\n"
+    docs = await hybrid_search(rewritten, scope_paper_ids=scope_paper_ids if scope_paper_ids else None)
+
+    # count unique papers from search results
+    unique_paper_ids = set(doc.get("paper_id") for doc in docs if doc.get("paper_id"))
+    yield f"\n✅ 已检索到来自 {len(unique_paper_ids)} 篇文献的 {len(docs)} 个相关段落\n\n"
+
+    # get total library count (only successfully ingested papers)
+    total_papers = 0
+    async for db in get_db():
+        count_result = await db.execute(
+            sa_select(func.count()).select_from(Paper).where(Paper.status == "ingested")
+        )
+        total_papers = count_result.scalar()
+        break
 
     # enrich docs with paper titles from DB
     title_cache = {}
@@ -48,10 +61,10 @@ async def generate_answer_stream(query: str, conversation_history: list[dict] = 
                         title_cache[pid] = paper.title
                     break
 
-    # build context with numbered references, dedup by paper title
+    # build context with numbered references, dedup by paper_id
     context_parts = []
     cited_docs = {}
-    seen_titles = {}
+    seen_pids = {}
     ref_num = 0
     for doc in docs:
         pid = doc.get("paper_id", "")
@@ -60,10 +73,10 @@ async def generate_answer_stream(query: str, conversation_history: list[dict] = 
         heading = doc.get("heading", "")
         if not text:
             continue
-        if title not in seen_titles:
+        if pid not in seen_pids:
             ref_num += 1
-            seen_titles[title] = ref_num
-        num = seen_titles[title]
+            seen_pids[pid] = ref_num
+        num = seen_pids[pid]
         cited_docs[num] = title
         prefix = f"[文献{num}] 《{title}》"
         if heading and heading != title:
@@ -72,7 +85,8 @@ async def generate_answer_stream(query: str, conversation_history: list[dict] = 
 
     context = "\n\n---\n\n".join(context_parts[:20])
 
-    messages = [{"role": "system", "content": RAG_SYSTEM_PROMPT}]
+    system_prompt = RAG_SYSTEM_PROMPT + f"\n\n当前文献库共有 {total_papers} 篇文献。如果用户询问文献库大小，请根据此数字回答，不要根据检索到的片段数量回答。"
+    messages = [{"role": "system", "content": system_prompt}]
     if conversation_history:
         messages.extend(conversation_history[-6:])
     messages.append({"role": "user", "content": f"文献片段:\n{context}\n\n问题: {query}"})

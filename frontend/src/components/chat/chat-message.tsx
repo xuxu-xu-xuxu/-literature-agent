@@ -35,7 +35,7 @@ export function ChatMessage({ role, content, citations }: Props) {
               [&_a]:text-[#2c5282] [&_a]:underline [&_hr]:border-gray-200
               [&_table]:border-collapse [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1
               [&_td]:border [&_td]:border-gray-300 [&_td]:px-2 [&_td]:py-1">
-              <ReactMarkdown key={content}>{content || "思考中..."}</ReactMarkdown>
+              <ReactMarkdown>{content || "思考中..."}</ReactMarkdown>
             </div>
           )}
         </div>

@@ -24,6 +24,7 @@ class PaperListParams(BaseModel):
     keyword: Optional[str] = None
     year_from: Optional[int] = None
     year_to: Optional[int] = None
+    tag: Optional[str] = None
 
 class ChatRequest(BaseModel):
     query: str

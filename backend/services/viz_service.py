@@ -1,102 +1,293 @@
 from backend.llm import get_llm_client
-from backend.models.database import get_db, Entity
+from backend.models.database import get_db
 from sqlalchemy import text
 import json
+import re
 
-VIZ_PROMPT = """你是数据可视化专家。用户想要一个图表。根据用户需求，生成：
-1. 合适的SQL查询（查询entities表，字段: paper_id, entity_type, attributes(JSONB), source_span）
-2. 合适的图表类型
-3. ECharts配置
+VIZ_PROMPT = """你是数据可视化专家。根据用户需求生成图表。
 
 用户需求: {query}
 
 已知实体类型: {available_types}
 
-entities表结构: paper_id TEXT, entity_type TEXT, attributes JSONB, source_span TEXT
+entities表: paper_id TEXT, entity_type TEXT, attributes JSONB, source_span TEXT
 
-SQL注意事项（非常重要）:
-- attributes列是JSONB类型，检查键是否存在使用 attributes::jsonb->>'key' IS NOT NULL，绝对不要使用 ? 操作符
-- 数值比较需要类型转换: (attributes->>'numeric_field')::numeric
-- 字符串比较直接: attributes->>'text_field' = 'value'
+SQL规则（必须严格遵守）:
+- attributes是JSONB，用 attributes->>'key' 访问键值
+- 数值比较: (attributes->>'field')::numeric
+- 字符串比较: attributes->>'field' = 'value'
+- 绝对不要使用 ? 或 ?| 或 ?& 操作符
+- 结果集第一列为分类/标签列，后续列为数值列
+- 散点图需要至少两列数值（x, y）
 
-输出JSON（不要其他内容）:
+输出纯JSON（不要markdown包裹）:
 {{
   "sql": "SELECT ... FROM entities WHERE ...",
-  "chart_type": "bar|scatter|line|boxplot|heatmap",
+  "chart_type": "bar|scatter|line|pie",
   "title": "图表标题",
-  "echarts_option": {{完整ECharts配置}},
   "explanation": "图表说明"
 }}
 """
 
 
 async def generate_chart(query: str) -> dict:
+    """Generate a chart from a natural language query."""
+    # Fetch available entity types
     async for db in get_db():
-        types_result = await db.execute(text("SELECT DISTINCT entity_type FROM entities LIMIT 50"))
-        available_types = [row[0] for row in types_result.fetchall()]
+        try:
+            types_result = await db.execute(
+                text("SELECT DISTINCT entity_type FROM entities LIMIT 50")
+            )
+            available_types = [row[0] for row in types_result.fetchall()]
+        except Exception:
+            available_types = []
         break
 
+    # Get LLM plan
     llm = get_llm_client()
     prompt = VIZ_PROMPT.format(
         query=query,
-        available_types=json.dumps(available_types, ensure_ascii=False)
+        available_types=json.dumps(available_types, ensure_ascii=False),
     )
     response = await llm.chat([{"role": "user", "content": prompt}])
-    response = response.strip()
-    if response.startswith("```json"):
-        response = response[7:]
-    if response.endswith("```"):
-        response = response[:-3]
-    plan = json.loads(response)
 
+    # Parse LLM response
+    plan = _parse_llm_json(response)
+    if not plan:
+        raise ValueError("LLM 返回了无效的 JSON，请重试")
+
+    sql = plan.get("sql", "")
+    if not sql:
+        raise ValueError("LLM 未生成 SQL 查询语句")
+
+    # Execute SQL
     async for db in get_db():
-        result = await db.execute(text(plan["sql"]))
-        columns = list(result.keys())
-        rows = [dict(zip(columns, row)) for row in result.fetchall()]
+        try:
+            result = await db.execute(text(sql))
+            columns = list(result.keys())
+            raw_rows = result.fetchall()
+            rows = [dict(zip(columns, row)) for row in raw_rows]
+        except Exception as e:
+            raise ValueError(f"SQL 执行失败: {e}")
         break
 
-    # Inject real data into ECharts option
-    option = plan.get("echarts_option", {})
-    _inject_data(option, rows, columns)
-    option = _ensure_dark_theme(option)
+    # Build chart from data
+    chart_type = plan.get("chart_type", "bar")
+    title = plan.get("title", "可视化")
+    explanation = plan.get("explanation", "")
+
+    if not rows:
+        return {
+            "chart_type": chart_type,
+            "title": title,
+            "data": [],
+            "echarts_option": {
+                "title": {"text": "暂无数据", "left": "center", "top": "center",
+                          "textStyle": {"color": "#9ca3af"}},
+                "backgroundColor": "transparent",
+            },
+            "explanation": explanation or "查询未返回任何数据。",
+        }
+
+    option = _build_echarts_option(chart_type, title, rows, columns)
 
     return {
-        "chart_type": plan["chart_type"],
-        "title": plan["title"],
+        "chart_type": chart_type,
+        "title": title,
         "data": rows,
         "echarts_option": option,
-        "explanation": plan.get("explanation", ""),
+        "explanation": explanation,
     }
 
 
-def _inject_data(option: dict, rows: list[dict], columns: list[str]) -> None:
-    if not rows or not columns:
-        return
-    cat_col = columns[0]   # first column = category/label
-    val_col = columns[1] if len(columns) > 1 else columns[0]  # second = value
+# ── helpers ──────────────────────────────────────────────────────────
 
+
+def _parse_llm_json(response: str) -> dict | None:
+    """Robustly parse JSON from an LLM response string."""
+    cleaned = response.strip()
+
+    # Remove markdown code fences
+    for prefix in ["```json", "```"]:
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+            break
+    for suffix in ["```"]:
+        if cleaned.endswith(suffix):
+            cleaned = cleaned[:-len(suffix)].strip()
+
+    # Direct parse
     try:
-        series = option.get("series", [])
-        if series:
-            series[0]["data"] = [_row_to_series_item(r, cat_col, val_col) for r in rows]
-        xaxis = option.get("xAxis", {})
-        if isinstance(xaxis, dict):
-            xaxis["data"] = [r[cat_col] for r in rows]
-        yaxis = option.get("yAxis", {})
-    except Exception:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
         pass
 
+    # Regex fallback: extract first JSON object
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
 
-def _row_to_series_item(row: dict, cat_col: str, val_col: str):
-    try:
-        return float(row[val_col])
-    except (ValueError, TypeError):
-        return str(row[val_col])
+    return None
 
 
-def _ensure_dark_theme(option: dict) -> dict:
-    option.setdefault("backgroundColor", "transparent")
-    option.setdefault("textStyle", {"color": "#94a3b8"})
-    option.setdefault("legend", {"textStyle": {"color": "#94a3b8"}})
-    option.setdefault("tooltip", {})
+def _classify_columns(
+    rows: list[dict], columns: list[str]
+) -> tuple[list[str], list[str]]:
+    """Split columns into categorical (string) and numeric groups."""
+    cat_cols: list[str] = []
+    num_cols: list[str] = []
+
+    for col in columns:
+        has_value = False
+        all_numeric = True
+        for row in rows[:30]:
+            val = row.get(col)
+            if val is None:
+                continue
+            has_value = True
+            try:
+                float(val)
+            except (ValueError, TypeError):
+                all_numeric = False
+                break
+
+        if not has_value:
+            cat_cols.append(col)
+        elif all_numeric:
+            num_cols.append(col)
+        else:
+            cat_cols.append(col)
+
+    return cat_cols, num_cols
+
+
+def _build_echarts_option(
+    chart_type: str, title: str, rows: list[dict], columns: list[str]
+) -> dict:
+    """Build a complete ECharts option from query results."""
+    cat_cols, num_cols = _classify_columns(rows, columns)
+
+    # If no numeric column found, try using first column as category with count
+    if not num_cols:
+        cat_col = cat_cols[0] if cat_cols else columns[0]
+        return {
+            "title": {"text": title, "left": "center",
+                      "textStyle": {"color": "#374151", "fontSize": 14}},
+            "backgroundColor": "transparent",
+            "textStyle": {"color": "#374151"},
+            "grid": {"left": "3%", "right": "7%", "bottom": "12%", "containLabel": True},
+            "tooltip": {"trigger": "axis"},
+            "xAxis": {
+                "type": "category",
+                "data": [str(r[cat_col]) for r in rows],
+                "axisLabel": {"color": "#6b7280"},
+            },
+            "yAxis": {"type": "value", "name": "count"},
+            "series": [{
+                "type": "bar",
+                "data": [1] * len(rows),  # placeholder counts
+                "itemStyle": {"color": "#2c5282"},
+            }],
+        }
+
+    cat_col = cat_cols[0] if cat_cols else columns[0]
+    categories = [str(r[cat_col]) for r in rows]
+
+    option: dict = {
+        "title": {"text": title, "left": "center",
+                  "textStyle": {"color": "#374151", "fontSize": 14}},
+        "backgroundColor": "transparent",
+        "textStyle": {"color": "#374151"},
+        "grid": {"left": "3%", "right": "7%", "bottom": "12%", "containLabel": True},
+    }
+
+    # ── scatter ──────────────────────────────────────────────────
+    if chart_type == "scatter" and len(num_cols) >= 2:
+        option["tooltip"] = {"trigger": "item", "formatter": "{b}"}
+        option["xAxis"] = {
+            "type": "value", "name": num_cols[0],
+            "nameTextStyle": {"color": "#6b7280"},
+        }
+        option["yAxis"] = {
+            "type": "value", "name": num_cols[1],
+            "nameTextStyle": {"color": "#6b7280"},
+            "scale": True,
+        }
+        option["series"] = [{
+            "type": "scatter",
+            "symbolSize": 8,
+            "itemStyle": {"color": "#2c5282"},
+            "data": [
+                {
+                    "name": str(r.get(cat_col, "")),
+                    "value": [
+                        _to_num(r.get(num_cols[0])),
+                        _to_num(r.get(num_cols[1])),
+                    ],
+                }
+                for r in rows
+            ],
+        }]
+        return option
+
+    # ── pie ──────────────────────────────────────────────────────
+    if chart_type == "pie":
+        val_col = num_cols[0]
+        option["tooltip"] = {"trigger": "item", "formatter": "{b}: {c} ({d}%)"}
+        option["series"] = [{
+            "type": "pie",
+            "radius": ["40%", "70%"],
+            "center": ["50%", "55%"],
+            "label": {"color": "#6b7280", "formatter": "{b}: {d}%"},
+            "data": [
+                {"name": str(r[cat_col]), "value": _to_num(r[val_col])}
+                for r in rows
+            ],
+        }]
+        return option
+
+    # ── bar / line (default) ─────────────────────────────────────
+    option["tooltip"] = {"trigger": "axis"}
+    option["xAxis"] = {
+        "type": "category",
+        "data": categories,
+        "axisLabel": {
+            "color": "#6b7280",
+            "rotate": 45 if len(categories) > 6 else 0,
+        },
+    }
+    option["yAxis"] = {
+        "type": "value",
+        "scale": True,
+        "nameTextStyle": {"color": "#6b7280"},
+    }
+
+    COLORS = ["#2c5282", "#e53e3e", "#38a169", "#d69e2e", "#805ad5", "#3182ce", "#dd6b20"]
+    use_color = len(num_cols) == 1  # only colour bars when single metric
+
+    series_list = []
+    for i, ncol in enumerate(num_cols[:6]):  # max 6 series
+        s: dict = {
+            "type": chart_type if chart_type in ("bar", "line") else "bar",
+            "name": ncol,
+            "data": [_to_num(r.get(ncol)) for r in rows],
+        }
+        if use_color:
+            s["itemStyle"] = {"color": COLORS[i % len(COLORS)]}
+        series_list.append(s)
+
+    option["series"] = series_list
     return option
+
+
+def _to_num(val) -> float:
+    """Safely convert a value to float, defaulting to 0."""
+    if val is None:
+        return 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0

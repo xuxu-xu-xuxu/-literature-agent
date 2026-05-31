@@ -24,8 +24,9 @@ export function VizPanel() {
     try {
       const data = await visualizeQuery(query.trim());
       setResult(data);
-    } catch {
-      setError("可视化生成失败，请重试");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "可视化生成失败，请重试";
+      setError(msg);
       setResult(null);
     } finally {
       setLoading(false);

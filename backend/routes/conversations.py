@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
+import json
 
 from backend.models.database import User, Conversation, Message, get_db
 from backend.models.schemas import ConversationCreate, ConversationOut, MessageOut
@@ -76,14 +77,15 @@ async def send_message(conversation_id: str, body: dict, user: User = Depends(ge
         await db.commit()
         break
 
+    scope_paper_ids = body.get("scope_paper_ids") or None
+
     async def event_stream():
         full_response = ""
         citations = None
         try:
-            async for chunk in generate_answer_stream(query):
+            async for chunk in generate_answer_stream(query, scope_paper_ids=scope_paper_ids):
                 if chunk:
-                    sse_data = chunk.replace("\n", "\ndata: ")
-                    yield f"data: {sse_data}\n\n"
+                    yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
                     if not chunk.startswith(("🔍", "\n📚", "\n✅", "📚", "✅")):
                         full_response += chunk
         except Exception as exc:

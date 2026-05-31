@@ -12,7 +12,7 @@ interface Paper {
 }
 
 export default function AnalyticsPage() {
-  const [tab, setTab] = useState<"charts" | "mining">("charts");
+  const [tab, setTab] = useState<"mining" | "charts">("mining");
   const [papers, setPapers] = useState<Paper[]>([]);
 
   useEffect(() => {
@@ -33,17 +33,6 @@ export default function AnalyticsPage() {
         {/* Tabs */}
         <div className="flex gap-0 mt-5 border-b-2 border-[#e5e7eb]">
           <button
-            onClick={() => setTab("charts")}
-            className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
-              tab === "charts"
-                ? "text-[#1a2744] border-[#1a2744]"
-                : "text-gray-400 border-transparent hover:text-gray-600"
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            统计图表
-          </button>
-          <button
             onClick={() => setTab("mining")}
             className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
               tab === "mining"
@@ -53,6 +42,17 @@ export default function AnalyticsPage() {
           >
             <Pickaxe className="w-4 h-4" />
             数据挖掘
+          </button>
+          <button
+            onClick={() => setTab("charts")}
+            className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+              tab === "charts"
+                ? "text-[#1a2744] border-[#1a2744]"
+                : "text-gray-400 border-transparent hover:text-gray-600"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            统计图表
           </button>
         </div>
       </div>

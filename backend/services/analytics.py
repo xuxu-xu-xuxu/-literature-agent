@@ -70,10 +70,11 @@ async def by_element(params: AnalyticsQueryParams) -> dict:
         "title": "Average ionic conductivity by element" if params.metric == "avg" else "Median ionic conductivity by element",
         "data": rows,
         "echarts_option": {
-            "tooltip": {"trigger": "axis"},
-            "xAxis": {"type": "category", "data": [r["element"] for r in rows]},
+            "grid": {"left": "3%", "right": "7%", "bottom": "12%", "containLabel": True},
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "xAxis": {"type": "category", "data": [r["element"] for r in rows], "axisLabel": {"rotate": 45}},
             "yAxis": {"type": "value", "name": "S/cm", "scale": True},
-            "series": [{"type": "bar", "data": [r["conductivity_s_cm"] for r in rows]}],
+            "series": [{"type": "bar", "data": [r["conductivity_s_cm"] for r in rows], "itemStyle": {"color": "#2c5282"}}],
         },
     }
 
@@ -96,10 +97,11 @@ async def by_method(params: AnalyticsQueryParams) -> dict:
         "title": "Ionic conductivity by method",
         "data": rows,
         "echarts_option": {
+            "grid": {"left": "3%", "right": "7%", "bottom": "12%", "containLabel": True},
             "tooltip": {"trigger": "axis"},
             "xAxis": {"type": "category", "data": [r["method"] for r in rows]},
             "yAxis": {"type": "value", "name": "S/cm", "scale": True},
-            "series": [{"type": "bar", "data": [r["avg_conductivity_s_cm"] for r in rows]}],
+            "series": [{"type": "bar", "data": [r["avg_conductivity_s_cm"] for r in rows], "itemStyle": {"color": "#2c5282"}}],
         },
     }
 
@@ -120,9 +122,24 @@ async def by_temperature(params: AnalyticsQueryParams) -> dict:
         "title": "Ionic conductivity vs temperature",
         "data": rows,
         "echarts_option": {
-            "tooltip": {"trigger": "item"},
+            "grid": {"left": "3%", "right": "7%", "bottom": "10%", "containLabel": True},
+            "tooltip": {
+                "trigger": "item",
+                "formatter": "{b}",
+            },
             "xAxis": {"type": "value", "name": "Temperature (K)"},
             "yAxis": {"type": "value", "name": "S/cm", "scale": True},
-            "series": [{"type": "scatter", "data": [[r["temperature_k"], r["conductivity_s_cm"]] for r in rows]}],
+            "series": [{
+                "type": "scatter",
+                "symbolSize": 8,
+                "itemStyle": {"color": "#2c5282"},
+                "data": [
+                    {
+                        "name": f"{r['material_formula']} ({r.get('method', '?')})",
+                        "value": [r["temperature_k"], r["conductivity_s_cm"]],
+                    }
+                    for r in rows
+                ],
+            }],
         },
     }

@@ -7,10 +7,10 @@ import { useChat } from "@/hooks/use-chat";
 import { useAuth } from "@/contexts/auth";
 
 interface Props {
-  scopePaperId?: string;
+  scopePaperIds?: string[];
 }
 
-export function ChatPanel({ scopePaperId }: Props) {
+export function ChatPanel({ scopePaperIds }: Props) {
   const { token } = useAuth();
   const [convoId, setConvoId] = useState<string | null>(null);
   const [convos, setConvos] = useState<{ id: string; title: string }[]>([]);
@@ -79,12 +79,13 @@ export function ChatPanel({ scopePaperId }: Props) {
         .then((data) => {
           setConvoId(data.id);
           loadConvos();
+          sendMessage(query, scopePaperIds || [], data.id);
         })
         .catch(() => {})
         .finally(() => { creatingRef.current = false; });
       return;
     }
-    sendMessage(query, scopePaperId ? [scopePaperId] : []);
+    sendMessage(query, scopePaperIds || []);
   };
 
   return (
@@ -144,7 +145,7 @@ export function ChatPanel({ scopePaperId }: Props) {
           <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
             {messages.map((msg) => (
               <ChatMessage
-                key={msg.role === "assistant" && msg.content ? `${msg.id}-${msg.content.length}` : msg.id}
+                key={msg.id}
                 role={msg.role}
                 content={msg.content}
                 citations={msg.citations}

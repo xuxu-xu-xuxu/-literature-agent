@@ -72,13 +72,14 @@ def extract_elements(formula: str) -> list[str]:
 def normalize_conductivity(value: float | None, unit: str | None) -> float | None:
     if value is None:
         return None
-    unit_l = (unit or "S/cm").lower().replace(" ", "")
-    if "ms/cm" in unit_l or "mscm" in unit_l:
+    unit_l = (unit or "S/cm").lower().replace(" ", "").replace("·", "").replace("⋅", "")
+    if "ms/cm" in unit_l or "mscm" in unit_l or unit_l.endswith("ms") or "mscm-1" in unit_l:
         return value / 1000
-    if "us/cm" in unit_l or "μs/cm" in unit_l or "µs/cm" in unit_l:
+    if "us/cm" in unit_l or "μs/cm" in unit_l or "µs/cm" in unit_l or "uscm" in unit_l:
         return value / 1_000_000
     if "s/m" in unit_l:
         return value / 100
+    # "S/cm" or "Scm-1" → return as-is
     return value
 
 
@@ -124,8 +125,9 @@ def classify_crystallinity(text: str) -> tuple[bool | None, str]:
 def find_candidate_windows(text: str, window: int = 700) -> list[str]:
     keywords = [
         "conductivity", "ionic conductivity", "S/cm", "mS/cm", "μS/cm", "µS/cm",
+        "S cm", "S·cm", "σ", "ionic conductor",
         "AIMD", "molecular dynamics", "machine learning potential", "experiment",
-        "impedance", "EIS", "电导率", "离子电导率",
+        "impedance", "EIS", "electrolyte", "电导率", "离子电导率", "电解质",
     ]
     windows = []
     seen = set()
@@ -202,14 +204,23 @@ def regex_extract_records(text: str) -> list[dict]:
     records = []
     windows = find_candidate_windows(text)
     cond_pattern = re.compile(
-        r"(?P<value>[+-]?\d+(?:\.\d+)?(?:\s*[xX×]\s*10\^?-?\d+|[eE][+-]?\d+)?)\s*(?P<unit>[mμµu]?S\s*/\s*cm|S\s*/\s*m)",
+        r"(?P<value>[+-]?\d+(?:\.\d+)?(?:\s*[xX×]\s*10\^?-?\d+|[eE][+-]?\d+)?)"
+        r"\s*(?P<unit>[mμµu]?S\s*/\s*cm|S\s*/\s*m|"
+        r"S\s*[·⋅.\s]?\s*cm\s*[-−–]\s*1|"
+        r"S\s*[·⋅.\s]?\s*cm\s*[-−–]\s*[23])",
         re.I,
     )
     temp_pattern = re.compile(
         r"(?P<temp>\d+(?:\.\d+)?)\s*(?P<tunit>K|°C|℃)\b|(?P<ctemp>\d+(?:\.\d+)?)\s+C\b",
         re.I,
     )
-    formula_pattern = re.compile(r"\b(?=[A-Za-z0-9().-]*\d)(?:Li|Na|K|Ag|Cu|Mg|Ca|Ba|Sr|La|Zr|Ta|Nb|P|S|O|Cl|Br|I|Ge|Si|Al|Ga|Ti|Sn|Y|Sc|Hf|W|Mo)(?:[A-Z][a-z]?|\d|\.|\(|\)|x|y|-){2,}\b")
+    formula_pattern = re.compile(
+        r"\b(?=[A-Za-z0-9().,+\-]*\d)"
+        r"(?:Li|Na|K|Ag|Cu|Mg|Ca|Ba|Sr|La|Zr|Ta|Nb|"
+        r"P|S|O|Cl|Br|I|Ge|Si|Al|Ga|Ti|Sn|Y|Sc|Hf|W|Mo|"
+        r"Zn|Fe|Mn|Ni|Co|Cr|V|Sb|Te|Bi|Pb|Cd|In|Ce|Pr|Nd|Sm|Eu|Gd)"
+        r"(?:[A-Z][a-z]?|\d|\.\d*|\(|\)|x|y|,|\+|-){2,}\b"
+    )
 
     for window in windows:
         cond = cond_pattern.search(window)
@@ -221,7 +232,14 @@ def regex_extract_records(text: str) -> list[dict]:
         method, method_detail = classify_method(window)
         is_crystalline, crystallinity = classify_crystallinity(window)
         value = _to_float(re.sub(r"\s+", "", cond.group("value")))
-        unit = cond.group("unit").replace(" ", "")
+        raw_unit = cond.group("unit").replace(" ", "").replace("·", "").replace("⋅", "")
+        # Normalize unit: "Scm-1" → "S/cm", "S cm-1" → "S/cm"
+        if raw_unit.endswith("-1") and "/" not in raw_unit:
+            unit = raw_unit[:-2] + "/cm"
+        elif raw_unit.endswith("-2") and "/" not in raw_unit:
+            unit = "S/cm"
+        else:
+            unit = raw_unit
         temp_value = _to_float(temp.group("temp") or temp.group("ctemp")) if temp else None
         temp_unit = temp.group("tunit") if temp and temp.group("tunit") else "C" if temp and temp.group("ctemp") else None
         confidence = 0.78 if formula != "unknown" and temp else 0.65 if formula != "unknown" else 0.45
@@ -252,17 +270,27 @@ async def llm_extract_records(text: str) -> list[dict]:
     llm = get_llm_client()
     response = await llm.chat([{"role": "user", "content": EXTRACT_PROMPT.format(text=snippets[:12000])}])
     cleaned = response.strip()
-    if cleaned.startswith("```json"):
-        cleaned = cleaned[7:]
-    if cleaned.startswith("```"):
-        cleaned = cleaned[3:]
-    if cleaned.endswith("```"):
-        cleaned = cleaned[:-3]
+    # Remove markdown code fences
+    for prefix in ["```json", "```"]:
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+            break
+    for suffix in ["```"]:
+        if cleaned.endswith(suffix):
+            cleaned = cleaned[:-len(suffix)].strip()
+    # Fallback: extract JSON array via regex if direct parse fails
     try:
-        parsed = json.loads(cleaned.strip())
+        parsed = json.loads(cleaned)
         return parsed if isinstance(parsed, list) else []
     except json.JSONDecodeError:
-        return []
+        match = re.search(r"\[.*\]", cleaned, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+                return parsed if isinstance(parsed, list) else []
+            except json.JSONDecodeError:
+                pass
+    return []
 
 
 def normalize_record(raw: dict, paper_id: str) -> dict:

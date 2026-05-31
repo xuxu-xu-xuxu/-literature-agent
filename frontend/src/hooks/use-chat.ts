@@ -48,26 +48,43 @@ export function useChat(conversationId: string | null) {
   }, [conversationId, token]);
 
   const sendMessage = useCallback(
-    async (query: string, scopePaperIds: string[] = []) => {
-      if (!conversationId || !token) return;
+    async (query: string, scopePaperIds: string[] = [], overrideConvoId?: string) => {
+      const effectiveConvoId = overrideConvoId || conversationId;
+      if (!effectiveConvoId || !token) return;
 
       const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: query };
       const assistantMsg: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
       try {
-        const resp = await fetch(`/api/conversations/${conversationId}/messages`, {
+        const resp = await fetch(`/api/conversations/${effectiveConvoId}/messages`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ query, scope_paper_ids: scopePaperIds }),
+          signal: controller.signal,
         });
 
+        if (!resp.ok) {
+          clearTimeout(timeoutId);
+          setIsStreaming(false);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsg.id
+                ? { ...m, content: `[请求失败: ${resp.status} ${resp.statusText}]` }
+                : m
+            )
+          );
+          return;
+        }
+
         const reader = resp.body?.getReader();
-        if (!reader) { setIsStreaming(false); return; }
+        if (!reader) { clearTimeout(timeoutId); setIsStreaming(false); return; }
 
         const decoder = new TextDecoder();
         let buffer = "";
@@ -108,13 +125,18 @@ export function useChat(conversationId: string | null) {
             }
           }
         }
-      } catch {
+      } catch (err: unknown) {
+        clearTimeout(timeoutId);
+        const errorMsg = err instanceof DOMException && err.name === "AbortError"
+          ? "\n[请求超时，请重试]"
+          : "\n[回答出错，请重试]";
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, content: m.content + "\n[回答出错，请重试]" } : m
+            m.id === assistantMsg.id ? { ...m, content: m.content + errorMsg } : m
           )
         );
       } finally {
+        clearTimeout(timeoutId);
         setIsStreaming(false);
       }
     },

@@ -6,28 +6,40 @@ RECALL_K = 30
 RERANK_K = 20
 ENABLE_RERANK = True
 
-async def hybrid_search(query: str, top_k: int = RERANK_K) -> list[dict]:
+async def hybrid_search(query: str, top_k: int = RERANK_K, scope_paper_ids: list[str] | None = None) -> list[dict]:
     query_vec = await embed_single(query)
 
     col = init_milvus()
     search_params = {"metric_type": "COSINE", "params": {"nprobe": 16}}
+    milvus_expr = None
+    if scope_paper_ids:
+        ids_str = ", ".join(f'"{pid}"' for pid in scope_paper_ids)
+        milvus_expr = f"paper_id in [{ids_str}]"
     milvus_results = col.search(
         data=[query_vec], anns_field="embedding", param=search_params,
-        limit=RECALL_K, output_fields=["paper_id", "text", "heading", "chunk_index"]
+        limit=RECALL_K, output_fields=["paper_id", "text", "heading", "chunk_index"],
+        expr=milvus_expr,
     )
 
     es = init_es()
-    es_results = es.search(index="paper_chunks", body={
+    es_body: dict = {
         "query": {
-            "multi_match": {
-                "query": query,
-                "fields": ["text^2", "heading"],
-                "operator": "or",
+            "bool": {
+                "must": [{
+                    "multi_match": {
+                        "query": query,
+                        "fields": ["text^2", "heading"],
+                        "operator": "or",
+                    }
+                }],
             }
         },
         "size": RECALL_K,
         "_source": ["paper_id", "chunk_index", "heading", "text"],
-    })
+    }
+    if scope_paper_ids:
+        es_body["query"]["bool"]["filter"] = [{"terms": {"paper_id": scope_paper_ids}}]
+    es_results = es.search(index="paper_chunks", body=es_body)
 
     rrf_scores = defaultdict(float)
     docs = {}

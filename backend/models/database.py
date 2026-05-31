@@ -40,6 +40,16 @@ async def _patch_existing_schema(conn):
         return
     await conn.execute(text("ALTER TABLE solid_electrolyte_records ADD COLUMN IF NOT EXISTS is_crystalline BOOLEAN"))
     await conn.execute(text("ALTER TABLE solid_electrolyte_records ADD COLUMN IF NOT EXISTS crystallinity VARCHAR(64) DEFAULT 'unknown'"))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS paper_tags (
+            id SERIAL PRIMARY KEY,
+            paper_id VARCHAR(64) NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+            tag VARCHAR(128) NOT NULL,
+            source VARCHAR(16) NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_tag ON paper_tags(paper_id, tag)"))
 
 async def get_db() -> AsyncSession:
     _, async_session = _get_engine()
@@ -154,4 +164,13 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[dict] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class PaperTag(Base):
+    __tablename__ = "paper_tags"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    paper_id: Mapped[str] = mapped_column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
+    tag: Mapped[str] = mapped_column(String(128), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
