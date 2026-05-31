@@ -23,6 +23,9 @@ volumes/
 .vscode/
 .idea/
 
+# 文档规划
+docs/
+
 # OS
 .DS_Store
 Thumbs.db
