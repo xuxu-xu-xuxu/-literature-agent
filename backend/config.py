@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
     upload_dir: str = "./uploads"
+    scansci_download_dir: str = "./downloads"
+    scansci_download_strategy: str = "legal_only"
     chunk_size: int = 512
     chunk_overlap: int = 64
     ingestion_concurrency: int = 2

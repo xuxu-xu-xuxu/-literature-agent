@@ -25,28 +25,49 @@ async def rewrite_query(query: str) -> str:
     return await llm.chat([{"role": "user", "content": prompt}])
 
 
-async def generate_answer_stream(query: str, conversation_history: list[dict] = None, scope_paper_ids: list[str] | None = None):
+async def generate_answer_stream(
+    query: str,
+    conversation_history: list[dict] = None,
+    scope_paper_ids: list[str] | None = None,
+    scope_domain_id: str | None = None,
+):
     from backend.services.rag_search import hybrid_search
-    from backend.models.database import get_db, Paper
+    from backend.models.database import get_db, Paper, PaperDomainAssignment
     from sqlalchemy import func, select as sa_select
 
     yield "🔍 正在分析问题...\n"
     rewritten = await rewrite_query(query)
     yield "\n📚 正在检索文献...\n"
-    docs = await hybrid_search(rewritten, scope_paper_ids=scope_paper_ids if scope_paper_ids else None)
+
+    effective_scope_paper_ids = scope_paper_ids
+    if scope_domain_id:
+        async for db in get_db():
+            result = await db.execute(
+                sa_select(PaperDomainAssignment.paper_id)
+                .join(Paper, Paper.id == PaperDomainAssignment.paper_id)
+                .where(PaperDomainAssignment.domain_id == scope_domain_id)
+                .where(Paper.status == "ingested")
+            )
+            effective_scope_paper_ids = list(result.scalars().all())
+            break
+
+    docs = await hybrid_search(rewritten, scope_paper_ids=effective_scope_paper_ids)
 
     # count unique papers from search results
     unique_paper_ids = set(doc.get("paper_id") for doc in docs if doc.get("paper_id"))
     yield f"\n✅ 已检索到来自 {len(unique_paper_ids)} 篇文献的 {len(docs)} 个相关段落\n\n"
 
-    # get total library count (only successfully ingested papers)
-    total_papers = 0
-    async for db in get_db():
-        count_result = await db.execute(
-            sa_select(func.count()).select_from(Paper).where(Paper.status == "ingested")
-        )
-        total_papers = count_result.scalar()
-        break
+    # get scoped library count (only successfully ingested papers)
+    if effective_scope_paper_ids is not None:
+        total_papers = len(effective_scope_paper_ids)
+    else:
+        total_papers = 0
+        async for db in get_db():
+            count_result = await db.execute(
+                sa_select(func.count()).select_from(Paper).where(Paper.status == "ingested")
+            )
+            total_papers = count_result.scalar()
+            break
 
     # enrich docs with paper titles from DB
     title_cache = {}

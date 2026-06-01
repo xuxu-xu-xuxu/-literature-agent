@@ -7,6 +7,7 @@ export async function fetchPapers(params?: {
   year_from?: number;
   year_to?: number;
   tag?: string;
+  domain_id?: string;
 }) {
   const searchParams = new URLSearchParams();
   if (params) {
@@ -19,18 +20,20 @@ export async function fetchPapers(params?: {
   return resp.json();
 }
 
-export async function uploadPDF(file: File) {
+export async function uploadPDF(file: File, domainId?: string) {
   const formData = new FormData();
   formData.append("file", file);
+  if (domainId) formData.append("domain_id", domainId);
   const resp = await fetch(`${BASE}/upload`, { method: "POST", body: formData });
   if (!resp.ok) throw new Error("Upload failed");
   return resp.json();
 }
 
-export async function uploadBatchZip(file: File, autoMine = false) {
+export async function uploadBatchZip(file: File, autoMine = false, domainId?: string) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("auto_mine", String(autoMine));
+  if (domainId) formData.append("domain_id", domainId);
   const resp = await fetch(`${BASE}/upload/batch`, { method: "POST", body: formData });
   if (!resp.ok) throw new Error("Batch upload failed");
   return resp.json();
@@ -39,6 +42,32 @@ export async function uploadBatchZip(file: File, autoMine = false) {
 export async function fetchIngestionJobs() {
   const resp = await fetch(`${BASE}/ingestion/jobs`);
   if (!resp.ok) throw new Error("Failed to fetch ingestion jobs");
+  return resp.json();
+}
+
+export async function fetchDownloads() {
+  const resp = await fetch(`${BASE}/downloads`);
+  if (!resp.ok) throw new Error("Failed to fetch downloads");
+  return resp.json();
+}
+
+export async function createDownload(identifier: string, strategy = "legal_only") {
+  const resp = await fetch(`${BASE}/downloads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identifier, strategy }),
+  });
+  if (!resp.ok) throw new Error("Download request failed");
+  return resp.json();
+}
+
+export async function ingestDownload(downloadId: string, domainId: string, autoMine = false) {
+  const resp = await fetch(`${BASE}/downloads/${downloadId}/ingest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain_id: domainId, auto_mine: autoMine }),
+  });
+  if (!resp.ok) throw new Error("Download ingest failed");
   return resp.json();
 }
 
@@ -172,6 +201,70 @@ export async function fetchConductivityByTemperature() {
 export async function fetchCategories() {
   const resp = await fetch(`${BASE}/papers/categories`);
   if (!resp.ok) throw new Error("Failed to fetch categories");
+  return resp.json();
+}
+
+export async function fetchDomains() {
+  const resp = await fetch(`${BASE}/domains`);
+  if (!resp.ok) throw new Error("Failed to fetch domains");
+  return resp.json();
+}
+
+export async function fetchKnowledgeGraph(params?: {
+  domain_id?: string;
+  limit?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/knowledge-graph?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch knowledge graph");
+  return resp.json();
+}
+
+export async function createDomain(payload: {
+  id: string;
+  name: string;
+  description?: string;
+  color?: string;
+  sort_order?: number;
+  is_default?: boolean;
+}) {
+  const resp = await fetch(`${BASE}/domains`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error("Failed to create domain");
+  return resp.json();
+}
+
+export async function updateDomain(domainId: string, payload: {
+  name?: string;
+  description?: string;
+  color?: string;
+  sort_order?: number;
+  is_default?: boolean;
+}) {
+  const resp = await fetch(`${BASE}/domains/${domainId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error("Failed to update domain");
+  return resp.json();
+}
+
+export async function assignPaperDomain(paperId: string, domainId: string) {
+  const resp = await fetch(`${BASE}/papers/${paperId}/domain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain_id: domainId }),
+  });
+  if (!resp.ok) throw new Error("Failed to assign domain");
   return resp.json();
 }
 

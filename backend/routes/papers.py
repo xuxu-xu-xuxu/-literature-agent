@@ -3,7 +3,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, func
-from backend.models.database import get_db, Paper, PaperTag, Entity, EntitySchema, EntitySynonym, SolidElectrolyteRecord
+from backend.models.database import get_db, Paper, PaperTag, PaperDomainAssignment, Entity, EntitySchema, EntitySynonym, SolidElectrolyteRecord
 from backend.models.schemas import PaperOut, PaperDetailOut, PaperListParams
 from backend.services.ingestion import init_milvus, init_es
 
@@ -21,6 +21,9 @@ async def list_papers(params: PaperListParams = Depends()):
             query = query.where(Paper.year >= params.year_from)
         if params.year_to is not None:
             query = query.where(Paper.year <= params.year_to)
+        if params.domain_id:
+            domain_sub = select(PaperDomainAssignment.paper_id).where(PaperDomainAssignment.domain_id == params.domain_id)
+            query = query.where(Paper.id.in_(domain_sub))
         if params.tag:
             tag_sub = select(PaperTag.paper_id).where(PaperTag.tag == params.tag)
             query = query.where(Paper.id.in_(tag_sub))
@@ -30,6 +33,8 @@ async def list_papers(params: PaperListParams = Depends()):
         count_query = select(func.count()).select_from(Paper)
         if params.tag:
             count_query = count_query.where(Paper.id.in_(tag_sub))
+        if params.domain_id:
+            count_query = count_query.where(Paper.id.in_(domain_sub))
         if params.keyword:
             count_query = count_query.where(Paper.title.ilike(f"%{params.keyword}%"))
         if params.year_from is not None:

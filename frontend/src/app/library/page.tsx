@@ -1,19 +1,18 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Upload, Archive, Trash2, Pause, X, Loader2, FileArchive } from "lucide-react";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Archive, Loader2, Pause, Search, Trash2, Upload, X } from "lucide-react";
 import {
-  fetchPapers,
-  uploadPDF,
-  uploadBatchZip,
-  deletePaper,
-  fetchIngestionJobs,
-  pauseIngestionJob,
   cancelIngestionJob,
-  fetchCategories,
-  triggerClassify,
-  triggerClustering,
+  deletePaper,
+  fetchDomains,
+  fetchIngestionJobs,
+  fetchPapers,
+  pauseIngestionJob,
+  uploadBatchZip,
+  uploadPDF,
 } from "@/lib/api";
-import { CategorySidebar } from "@/components/library/category-sidebar";
+import { DomainMatrix, type LibraryDomainSummary } from "@/components/library/domain-matrix";
 
 interface Paper {
   id: string;
@@ -33,104 +32,119 @@ interface IngestionJob {
   current_file: string | null;
 }
 
+const PAGE_SIZE = 20;
+
 export default function LibraryPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
-  const [totalPapers, setTotalPapers] = useState(0);
-  const [globalTotal, setGlobalTotal] = useState(0); // unfiltered total, never changes with tag
-  const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const [domains, setDomains] = useState<LibraryDomainSummary[]>([]);
   const [jobs, setJobs] = useState<IngestionJob[]>([]);
-
-  interface CategoryData { tag: string; count: number; category: string; }
-  const [categories, setCategories] = useState<CategoryData[]>([]);
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [classifying, setClassifying] = useState(false);
-  const [clustering, setClustering] = useState(false);
+  const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
+  const [uploadDomainId, setUploadDomainId] = useState<string>("unclassified");
   const [keyword, setKeyword] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPapers, setTotalPapers] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "error" | "info" } | null>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const loadPapers = useCallback(async () => {
+  const loadDomains = useCallback(async () => {
     try {
-      const data = await fetchPapers({ keyword: keyword || undefined, page, page_size: pageSize, tag: selectedTag || undefined });
-      setPapers(data.items || []);
-      setTotalPapers(data.total || 0);
+      const data = await fetchDomains();
+      setDomains(data || []);
     } catch {
-      setMessage({ text: "加载文献列表失败", type: "error" });
+      setDomains([]);
     }
-  }, [keyword, page, selectedTag]);
+  }, []);
 
   const loadJobs = useCallback(async () => {
     try {
       const data = await fetchIngestionJobs();
       setJobs(data.items || []);
-    } catch {}
+    } catch {
+      setJobs([]);
+    }
   }, []);
 
-  const loadCategories = useCallback(async () => {
+  const loadPapers = useCallback(async () => {
     try {
-      const data = await fetchCategories();
-      setCategories(data || []);
-    } catch {}
-  }, []);
+      const data = await fetchPapers({
+        page,
+        page_size: PAGE_SIZE,
+        keyword: keyword || undefined,
+        domain_id: selectedDomainId || undefined,
+      });
+      setPapers(data.items || []);
+      setTotalPapers(data.total || 0);
+    } catch {
+      setMessage({ text: "加载文献列表失败", type: "error" });
+    }
+  }, [keyword, page, selectedDomainId]);
 
-  // Fetch unfiltered total once
   useEffect(() => {
-    fetchPapers({ page: 1, page_size: 1 }).then((data) => setGlobalTotal(data.total || 0)).catch(() => {});
-  }, []);
+    loadDomains();
+    loadJobs();
+  }, [loadDomains, loadJobs]);
 
   useEffect(() => {
     loadPapers();
-    loadJobs();
-    loadCategories();
-  }, [loadPapers, loadJobs, loadCategories]);
+  }, [loadPapers]);
 
-  // Reset page when tag changes
-  useEffect(() => { setPage(1); }, [selectedTag]);
-
-  // Poll categories while classifying/clustering
   useEffect(() => {
-    if (!classifying && !clustering) return;
-    const interval = setInterval(loadCategories, 5000);
-    return () => clearInterval(interval);
-  }, [classifying, clustering, loadCategories]);
+    setPage(1);
+  }, [selectedDomainId]);
 
-  // Auto-stop classifying/clustering when results appear
   useEffect(() => {
-    if (classifying && categories.length > 0) setClassifying(false);
-    if (clustering && categories.some((c) => c.category === "聚类结果")) setClustering(false);
-  }, [categories, classifying, clustering]);
+    const hasActiveJob = jobs.some((job) => ["extracting", "queued", "running", "paused"].includes(job.status));
+    const hasProcessingPaper = papers.some((paper) => paper.status === "processing");
 
-  // Auto-poll when there are active jobs or processing papers
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => {
-    const hasProcessing = papers.some((p) => p.status === "processing");
-    const hasActiveJob = jobs.some((j) =>
-      j.status === "extracting" || j.status === "queued" || j.status === "running"
-    );
-    if ((hasProcessing || hasActiveJob) && !pollRef.current) {
-      pollRef.current = setInterval(() => { loadPapers(); loadJobs(); }, 3000);
-    } else if (!hasProcessing && !hasActiveJob && pollRef.current) {
+    if ((hasActiveJob || hasProcessingPaper) && !pollRef.current) {
+      pollRef.current = setInterval(() => {
+        loadPapers();
+        loadJobs();
+        loadDomains();
+      }, 3000);
+    } else if (!hasActiveJob && !hasProcessingPaper && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+
     return () => {
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
-  }, [papers, jobs, loadPapers, loadJobs]);
+  }, [jobs, papers, loadDomains, loadJobs, loadPapers]);
+
+  const selectedDomain = useMemo(() => {
+    return domains.find((domain) => domain.id === selectedDomainId) || null;
+  }, [domains, selectedDomainId]);
+
+  const activeSummary = useMemo(() => {
+    if (selectedDomain) return selectedDomain;
+    return {
+      id: "all",
+      name: "全部领域",
+      paper_count: domains.reduce((sum, domain) => sum + domain.paper_count, 0),
+      ingested_count: domains.reduce((sum, domain) => sum + domain.ingested_count, 0),
+      processing_count: domains.reduce((sum, domain) => sum + domain.processing_count, 0),
+      failed_count: domains.reduce((sum, domain) => sum + domain.failed_count, 0),
+    } as const;
+  }, [domains, selectedDomain]);
 
   const handleUpload = async (file: File) => {
     setUploading(true);
     setMessage(null);
     try {
-      const result = await uploadPDF(file);
+      const result = await uploadPDF(file, uploadDomainId);
       if (result.status === "duplicate") {
-        setMessage({ text: "该文献已存在，已跳过", type: "info" });
-      } else {
-        await loadPapers();
+        setMessage({ text: "这篇文献已经存在，已跳过", type: "info" });
       }
+      await loadPapers();
+      await loadDomains();
+      await loadJobs();
     } catch {
       setMessage({ text: "上传失败", type: "error" });
     } finally {
@@ -142,8 +156,9 @@ export default function LibraryPage() {
     setUploading(true);
     setMessage(null);
     try {
-      await uploadBatchZip(file, false);
+      await uploadBatchZip(file, false, uploadDomainId);
       await loadPapers();
+      await loadDomains();
       await loadJobs();
     } catch {
       setMessage({ text: "批量导入失败", type: "error" });
@@ -152,12 +167,13 @@ export default function LibraryPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (paperId: string) => {
     try {
-      await deletePaper(id);
-      setPapers((prev) => prev.filter((p) => p.id !== id));
-    } catch (e: unknown) {
-      setMessage({ text: e instanceof Error ? e.message : "删除失败", type: "error" });
+      await deletePaper(paperId);
+      await loadPapers();
+      await loadDomains();
+    } catch (error: unknown) {
+      setMessage({ text: error instanceof Error ? error.message : "删除失败", type: "error" });
     }
   };
 
@@ -165,209 +181,304 @@ export default function LibraryPage() {
     try {
       await pauseIngestionJob(jobId);
       await loadJobs();
-    } catch {}
+    } catch {
+      setMessage({ text: "暂停任务失败", type: "error" });
+    }
   };
 
   const handleCancelJob = async (jobId: string) => {
     try {
       await cancelIngestionJob(jobId);
       await loadJobs();
-    } catch {}
-  };
-
-  const handleClassify = async () => {
-    setClassifying(true);
-    try {
-      await triggerClassify();
     } catch {
-      setMessage({ text: "启动分类失败", type: "error" });
-      setClassifying(false);
+      setMessage({ text: "删除任务失败", type: "error" });
     }
   };
 
-  const handleCluster = async () => {
-    setClustering(true);
-    try {
-      await triggerClustering();
-    } catch {
-      setMessage({ text: "启动聚类失败", type: "error" });
-      setClustering(false);
-    }
-  };
-
-  const statusLabel = (s: string) => {
-    switch (s) {
-      case "extracting": return "解压中";
-      case "queued": return "排队中";
-      case "running": return "处理中";
-      case "paused": return "已暂停";
-      case "cancelled": return "已取消";
-      case "done": return "已完成";
-      case "failed": return "失败";
-      case "partial_failed": return "部分失败";
-      default: return s;
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case "extracting":
+        return "解压中";
+      case "queued":
+        return "排队中";
+      case "running":
+        return "处理中";
+      case "paused":
+        return "已暂停";
+      case "cancelled":
+        return "已取消";
+      case "done":
+        return "已完成";
+      case "failed":
+        return "失败";
+      case "partial_failed":
+        return "部分失败";
+      default:
+        return status;
     }
   };
 
   return (
-    <div className="h-full flex">
-      <CategorySidebar
-        categories={categories}
-        selectedTag={selectedTag}
-        onSelectTag={setSelectedTag}
-        onClassify={handleClassify}
-        onCluster={handleCluster}
-        classifying={classifying}
-        clustering={clustering}
-        totalPapers={globalTotal}
-      />
-      <div className="flex-1 overflow-y-auto min-w-0">
-        <div className="max-w-5xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+    <div className="h-full overflow-y-auto bg-white">
+      <div className="mx-auto max-w-7xl px-6 py-8">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="text-2xl font-heading text-[#1a2744]">文献库</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              共 {totalPapers} 篇文献
+            <p className="mt-1 text-sm text-gray-500">
+              领域矩阵 + 导入统计 + 文献列表
             </p>
           </div>
-          <div className="flex gap-3">
-            <input ref={zipRef} type="file" accept=".zip" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBatchUpload(f); e.target.value = ""; }} />
-            <button onClick={() => zipRef.current?.click()} disabled={uploading}
-              className="flex items-center gap-2 px-4 py-2 border border-[#1a2744] text-[#1a2744] rounded-lg text-sm font-medium hover:bg-[#eef2f8] disabled:opacity-50">
-              <Archive className="w-4 h-4" />批量导入
+
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              导入领域
+              <select
+                value={uploadDomainId}
+                onChange={(e) => setUploadDomainId(e.target.value)}
+                className="rounded-md border border-[#d1d5db] bg-white px-3 py-2 text-sm text-gray-700 focus:border-[#1a2744] focus:outline-none"
+              >
+                {domains.map((domain) => (
+                  <option key={domain.id} value={domain.id}>
+                    {domain.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <input
+              ref={zipRef}
+              type="file"
+              accept=".zip"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleBatchUpload(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => zipRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-2 rounded-md border border-[#1a2744] px-4 py-2 text-sm font-medium text-[#1a2744] transition-colors hover:bg-[#eef2f8] disabled:opacity-50"
+            >
+              <Archive className="h-4 w-4" />
+              批量导入
             </button>
-            <input ref={pdfRef} type="file" accept=".pdf" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ""; }} />
-            <button onClick={() => pdfRef.current?.click()} disabled={uploading}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
-              style={{ backgroundColor: "#1a2744" }}>
-              <Upload className="w-4 h-4" />{uploading ? "上传中..." : "上传 PDF"}
+
+            <input
+              ref={pdfRef}
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUpload(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => pdfRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-2 rounded-md bg-[#1a2744] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#24395f] disabled:opacity-50"
+            >
+              <Upload className="h-4 w-4" />
+              {uploading ? "上传中..." : "上传 PDF"}
             </button>
           </div>
         </div>
 
-        {/* Message */}
         {message && (
-          <div className={`mb-4 px-4 py-2 border rounded-lg text-sm ${
-            message.type === "error" ? "bg-red-50 border-red-200 text-red-600" : "bg-blue-50 border-blue-200 text-blue-600"
-          }`}>{message.text}</div>
-        )}
-
-        {/* Batch Jobs — show all non-deleted jobs */}
-        {jobs.length > 0 && (
-          <div className="mb-6 space-y-3">
-            <h2 className="text-sm font-heading font-semibold text-[#1a2744]">批量导入任务</h2>
-            {jobs.map((job) => {
-              const isActive = job.status === "extracting" || job.status === "queued" || job.status === "running" || job.status === "paused";
-              return (
-              <div key={job.id} className="border border-[#e5e7eb] rounded-lg bg-white p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    {job.status === "extracting" && <FileArchive className="w-4 h-4 text-[#1a2744]" />}
-                    {job.status === "running" && <Loader2 className="w-4 h-4 animate-spin text-[#1a2744]" />}
-                    {job.status === "paused" && <Pause className="w-4 h-4 text-amber-500" />}
-                    {job.status === "done" && <div className="w-2 h-2 rounded-full bg-green-500" />}
-                    {job.status === "partial_failed" && <div className="w-2 h-2 rounded-full bg-amber-500" />}
-                    {job.status === "failed" && <div className="w-2 h-2 rounded-full bg-red-500" />}
-                    {job.status === "cancelled" && <div className="w-2 h-2 rounded-full bg-gray-400" />}
-                    <span className="text-sm font-medium text-gray-700">{statusLabel(job.status)}</span>
-                    <span className="text-xs text-gray-500">
-                      {job.succeeded + job.failed + job.duplicate}/{job.total || "?"} 篇
-                      {job.succeeded > 0 && ` (成功${job.succeeded})`}
-                      {job.failed > 0 && ` (失败${job.failed})`}
-                      {job.duplicate > 0 && ` (重复${job.duplicate})`}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    {(job.status === "running" || job.status === "queued" || job.status === "extracting") && (
-                      <button onClick={() => handlePauseJob(job.id)}
-                        className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-amber-50 text-amber-600 hover:bg-amber-100">
-                        <Pause className="w-3 h-3" />暂停
-                      </button>
-                    )}
-                    <button onClick={() => handleCancelJob(job.id)}
-                      className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-red-50 text-red-600 hover:bg-red-100">
-                      <X className="w-3 h-3" />删除
-                    </button>
-                  </div>
-                </div>
-                {isActive && job.total > 0 && (
-                  <div className="bg-[#e5e7eb] rounded-full h-2 overflow-hidden">
-                    <div className="bg-[#1a2744] h-full rounded-full transition-all duration-500"
-                      style={{ width: `${((job.succeeded + job.failed + job.duplicate) / job.total) * 100}%` }} />
-                  </div>
-                )}
-                {job.current_file && (
-                  <div className="text-xs text-gray-500 mt-2 truncate">当前: {job.current_file}</div>
-                )}
-              </div>
-            )})}
+          <div
+            className={`mt-4 rounded-md border px-4 py-3 text-sm ${
+              message.type === "error"
+                ? "border-red-200 bg-red-50 text-red-600"
+                : "border-blue-200 bg-blue-50 text-blue-600"
+            }`}
+          >
+            {message.text}
           </div>
         )}
 
-        {/* Search */}
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-          <input value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} placeholder="搜索标题..."
-            className="w-full pl-9 pr-4 py-2 border border-[#e5e7eb] rounded-lg text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:border-[#1a2744] focus:ring-1 focus:ring-[#1a2744]" />
-        </div>
-
-        {/* Table */}
-        <div className="border border-[#e5e7eb] rounded-lg overflow-hidden">
-          <div className="grid grid-cols-[1fr_140px_80px_90px] gap-4 px-5 py-2.5 bg-[#fafafa] border-b border-[#e5e7eb] text-xs font-medium text-gray-500 uppercase tracking-wider">
-            <span>标题</span><span>作者</span><span>年份</span><span>状态</span>
+        <section className="mt-6">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-[#1a2744]">领域矩阵</h2>
+              <p className="mt-1 text-xs text-gray-500">
+                点击方块筛选对应领域的文献，上传时会默认写入你选中的导入领域。
+              </p>
+            </div>
+            <button
+              onClick={() => setSelectedDomainId(null)}
+              className="text-xs font-medium text-[#2c5282] hover:text-[#1a2744]"
+            >
+              查看全部
+            </button>
           </div>
-          {papers.length === 0 && (
-            <div className="px-5 py-12 text-center text-sm text-gray-400">暂无文献，请上传 PDF 开始</div>
-          )}
-          {papers.map((paper) => (
-            <div key={paper.id}
-              className="grid grid-cols-[1fr_140px_80px_90px] gap-4 px-5 py-3 border-b border-[#f3f4f6] text-sm text-gray-700 hover:bg-[#fafafa] group">
-              <span className="truncate font-medium">{paper.title}</span>
-              <span className="truncate text-gray-500">{paper.authors || "未知"}</span>
-              <span className="text-gray-500">{paper.year || "-"}</span>
-              <div className="flex items-center gap-2">
-                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${
-                  paper.status === "ingested" ? "bg-[#eef2f8] text-[#2c5282]"
-                  : paper.status === "processing" ? "bg-green-50 text-green-600"
-                  : "bg-red-50 text-red-600"
-                }`}>
-                  {paper.status === "ingested" ? "已入库" : paper.status === "processing" ? "处理中" : "失败"}
-                </span>
-                <button onClick={() => handleDelete(paper.id)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+
+          <DomainMatrix
+            domains={domains}
+            selectedDomainId={selectedDomainId}
+            onSelectDomain={(domainId) => {
+              setSelectedDomainId(domainId);
+              if (domainId) setUploadDomainId(domainId);
+            }}
+          />
+        </section>
+
+        <section className="mt-6 border-t border-[#e5e7eb] pt-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-[#1a2744]">
+                当前领域: {activeSummary.name}
+              </h2>
+              <div className="mt-1 flex flex-wrap gap-3 text-xs text-gray-500">
+                <span>总数 {activeSummary.paper_count}</span>
+                <span>已入库 {activeSummary.ingested_count}</span>
+                <span>处理中 {activeSummary.processing_count}</span>
+                <span>失败 {activeSummary.failed_count}</span>
               </div>
             </div>
-          ))}
-        </div>
 
-        {/* Pagination */}
-        {totalPapers > pageSize && (
-          <div className="flex items-center justify-center gap-4 mt-4 text-sm text-gray-600">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="px-3 py-1.5 border border-[#e5e7eb] rounded-md hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              上一页
-            </button>
-            <span className="text-gray-500">
-              第 {page} 页 / 共 {Math.ceil(totalPapers / pageSize)} 页（{totalPapers} 篇）
-            </span>
-            <button
-              onClick={() => setPage((p) => p + 1)}
-              disabled={page >= Math.ceil(totalPapers / pageSize)}
-              className="px-3 py-1.5 border border-[#e5e7eb] rounded-md hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              下一页
-            </button>
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+              <input
+                value={keyword}
+                onChange={(e) => {
+                  setKeyword(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="搜索标题..."
+                className="w-full rounded-md border border-[#d1d5db] py-2 pl-9 pr-3 text-sm text-gray-700 placeholder:text-gray-400 focus:border-[#1a2744] focus:outline-none"
+              />
+            </div>
           </div>
-        )}
-      </div>
+
+          <div className="mt-4 overflow-hidden rounded-lg border border-[#e5e7eb]">
+            <div className="grid grid-cols-[1fr_140px_80px_90px] gap-4 bg-[#fafafa] px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-gray-500">
+              <span>标题</span>
+              <span>作者</span>
+              <span>年份</span>
+              <span>状态</span>
+            </div>
+
+            {papers.length === 0 && (
+              <div className="px-5 py-12 text-center text-sm text-gray-400">
+                当前领域暂无文献
+              </div>
+            )}
+
+            {papers.map((paper) => (
+              <div
+                key={paper.id}
+                className="group grid grid-cols-[1fr_140px_80px_90px] gap-4 border-b border-[#f3f4f6] px-5 py-3 text-sm text-gray-700 last:border-b-0 hover:bg-[#fafafa]"
+              >
+                <span className="truncate font-medium">{paper.title}</span>
+                <span className="truncate text-gray-500">{paper.authors || "未知"}</span>
+                <span className="text-gray-500">{paper.year || "-"}</span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-block rounded px-2 py-0.5 text-[10px] font-medium ${
+                      paper.status === "ingested"
+                        ? "bg-[#eef2f8] text-[#2c5282]"
+                        : paper.status === "processing"
+                          ? "bg-green-50 text-green-600"
+                          : "bg-red-50 text-red-600"
+                    }`}
+                  >
+                    {paper.status === "ingested" ? "已入库" : paper.status === "processing" ? "处理中" : "失败"}
+                  </span>
+                  <button
+                    onClick={() => handleDelete(paper.id)}
+                    className="rounded p-1 text-gray-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                    aria-label="删除文献"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {totalPapers > PAGE_SIZE && (
+            <div className="mt-4 flex items-center justify-center gap-4 text-sm text-gray-600">
+              <button
+                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                disabled={page <= 1}
+                className="rounded-md border border-[#e5e7eb] px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                上一页
+              </button>
+              <span className="text-gray-500">
+                第 {page} 页 / 共 {Math.ceil(totalPapers / PAGE_SIZE)} 页（{totalPapers} 篇）
+              </span>
+              <button
+                onClick={() => setPage((prev) => prev + 1)}
+                disabled={page >= Math.ceil(totalPapers / PAGE_SIZE)}
+                className="rounded-md border border-[#e5e7eb] px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                下一页
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-[#1a2744]">批量导入任务</h2>
+          <div className="mt-3 space-y-3">
+            {jobs.map((job) => {
+              const active = ["extracting", "queued", "running", "paused"].includes(job.status);
+              return (
+                <div key={job.id} className="rounded-lg border border-[#e5e7eb] p-4">
+                  <div className="mb-2 flex items-center justify-between gap-4">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {job.status === "extracting" && <Loader2 className="h-4 w-4 animate-spin text-[#1a2744]" />}
+                      {job.status === "running" && <Loader2 className="h-4 w-4 animate-spin text-[#1a2744]" />}
+                      {job.status === "paused" && <Pause className="h-4 w-4 text-amber-500" />}
+                      {job.status === "failed" && <X className="h-4 w-4 text-red-500" />}
+                      <span className="text-sm font-medium text-gray-700">{statusLabel(job.status)}</span>
+                      <span className="text-xs text-gray-500">
+                        {job.succeeded + job.failed + job.duplicate}/{job.total || "?"}
+                        {job.succeeded > 0 ? ` 成功${job.succeeded}` : ""}
+                        {job.failed > 0 ? ` 失败${job.failed}` : ""}
+                        {job.duplicate > 0 ? ` 重复${job.duplicate}` : ""}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      {active && (
+                        <button
+                          onClick={() => handlePauseJob(job.id)}
+                          className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-600 hover:bg-amber-100"
+                        >
+                          暂停
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleCancelJob(job.id)}
+                        className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+
+                  {active && job.total > 0 && (
+                    <div className="h-2 overflow-hidden rounded-full bg-[#e5e7eb]">
+                      <div
+                        className="h-full rounded-full bg-[#1a2744] transition-all duration-500"
+                        style={{
+                          width: `${((job.succeeded + job.failed + job.duplicate) / job.total) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {job.current_file && <div className="mt-2 truncate text-xs text-gray-500">{job.current_file}</div>}
+                </div>
+              );
+            })}
+            {jobs.length === 0 && <div className="text-sm text-gray-400">暂无批量导入任务</div>}
+          </div>
+        </section>
       </div>
     </div>
   );

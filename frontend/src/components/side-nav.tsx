@@ -1,11 +1,15 @@
 "use client";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MessageCircle, Library, BarChart3, Microscope } from "lucide-react";
+import { BarChart3, BookOpenText, Download, Library, MessageCircle, Microscope, Network } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "聊天", icon: MessageCircle },
   { href: "/library", label: "文献库", icon: Library },
+  { href: "/downloads", label: "下载", icon: Download },
+  { href: "/graph", label: "图谱", icon: Network },
+  { href: "/docs", label: "文档", icon: BookOpenText },
   { href: "/analytics", label: "分析", icon: BarChart3 },
   { href: "/entities", label: "实体", icon: Microscope },
 ];
@@ -19,10 +23,7 @@ export function SideNav() {
       style={{ backgroundColor: "#1a2744" }}
     >
       {navItems.map((item) => {
-        const isActive =
-          item.href === "/"
-            ? pathname === "/"
-            : pathname.startsWith(item.href);
+        const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
         const Icon = item.icon;
 
         return (
@@ -36,9 +37,7 @@ export function SideNav() {
             }`}
           >
             <Icon className="w-5 h-5" />
-            <span className="text-[9px] font-medium font-heading">
-              {item.label}
-            </span>
+            <span className="text-[9px] font-medium font-heading">{item.label}</span>
           </Link>
         );
       })}
