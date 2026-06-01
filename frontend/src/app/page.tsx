@@ -9,25 +9,19 @@ import {
   Library,
 } from "lucide-react";
 import { ChatPanel } from "@/components/chat/chat-panel";
-import { fetchDomains, fetchPapers } from "@/lib/api";
+import { fetchPapers } from "@/lib/api";
+import { useDomains } from "@/hooks/use-domains";
 
 interface Paper {
   id: string;
   title: string;
 }
 
-interface LibraryDomain {
-  id: string;
-  name: string;
-  paper_count: number;
-  ingested_count: number;
-}
-
 type ScopeType = "all" | "domain" | "paper";
 
 export default function ChatPage() {
   const [allPapers, setAllPapers] = useState<Paper[]>([]);
-  const [domains, setDomains] = useState<LibraryDomain[]>([]);
+  const { domains, loadDomains } = useDomains();
   const [domainPapers, setDomainPapers] = useState<Record<string, Paper[]>>({});
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
   const [scopeType, setScopeType] = useState<ScopeType>("all");
@@ -36,18 +30,21 @@ export default function ChatPage() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [paperData, domainData] = await Promise.all([
-        fetchPapers({ page_size: 100 }),
-        fetchDomains(),
-      ]);
+      const paperData = await fetchPapers({ page_size: 100 });
       setAllPapers(paperData.items || []);
-      setDomains(domainData || []);
     } catch {}
   }, []);
 
   useEffect(() => {
     loadAll();
-  }, [loadAll]);
+    loadDomains();
+  }, [loadAll, loadDomains]);
+
+  useEffect(() => {
+    if (scopeDomainId && !domains.some((domain) => domain.id === scopeDomainId)) {
+      selectAll();
+    }
+  }, [domains, scopeDomainId]);
 
   const allCount = useMemo(() => {
     const domainTotal = domains.reduce((sum, domain) => sum + domain.paper_count, 0);

@@ -2,6 +2,9 @@ import hashlib
 import uuid
 import os
 
+from backend.services.paper_structure import split_markdown_sections
+from backend.services.metadata_extractor import extract_document_metadata
+
 _converter = None
 
 def _get_converter():
@@ -28,8 +31,13 @@ def parse_pdf(file_path: str) -> dict:
         markdown_text = _extract_text_pymupdf(file_path)
         tables = []
     markdown_text = _sanitize_text(markdown_text)
-    metadata = _extract_metadata(file_path)
-    sections = _split_by_sections(markdown_text)
+    pdf_metadata = _extract_metadata(file_path)
+    metadata = extract_document_metadata(
+        markdown_text,
+        pdf_metadata=pdf_metadata,
+        filename=os.path.basename(file_path),
+    )
+    sections = split_markdown_sections(markdown_text, document_title=metadata.get("title", ""))
     return {
         "paper_id": compute_paper_id(file_path),
         "metadata": metadata,
@@ -64,20 +72,7 @@ def _extract_metadata(file_path: str) -> dict:
     return {"title": _sanitize_text(title).strip(), "authors": _sanitize_text(author).strip()}
 
 def _split_by_sections(text: str) -> list[dict]:
-    import re
-    sections = []
-    pattern = re.compile(r"^#{1,3}\s+(.+)$", re.MULTILINE)
-    matches = list(pattern.finditer(text))
-    for i, match in enumerate(matches):
-        title = match.group(1).strip()
-        start = match.end()
-        end = matches[i+1].start() if i+1 < len(matches) else len(text)
-        body = text[start:end].strip()
-        if body:
-            sections.append({"heading": title, "content": body})
-    if not sections:
-        sections.append({"heading": "", "content": text})
-    return sections
+    return split_markdown_sections(text)
 
 def _extract_tables_from_doc(result) -> list[dict]:
     tables = []

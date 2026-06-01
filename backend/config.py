@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     scansci_download_dir: str = "./downloads"
     scansci_download_strategy: str = "legal_only"
-    chunk_size: int = 512
-    chunk_overlap: int = 64
+    chunk_size: int = 1100
+    chunk_overlap: int = 150
     ingestion_concurrency: int = 2
     embedding_batch_size: int = 20
     llm_extract_concurrency: int = 2

@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileDown, Loader2 } from "lucide-react";
 import {
   createDownload,
-  fetchDomains,
   fetchDownloads,
   ingestDownload,
 } from "@/lib/api";
-import { DomainMatrix, type LibraryDomainSummary } from "@/components/library/domain-matrix";
+import { DomainMatrix } from "@/components/library/domain-matrix";
+import { DomainManager } from "@/components/domains/domain-manager";
+import { useDomains } from "@/hooks/use-domains";
 
 interface DownloadItem {
   id: string;
@@ -24,7 +25,6 @@ interface DownloadItem {
 }
 
 export default function DownloadsPage() {
-  const [domains, setDomains] = useState<LibraryDomainSummary[]>([]);
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
   const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
   const [importDomainId, setImportDomainId] = useState("solid-state");
@@ -36,17 +36,7 @@ export default function DownloadsPage() {
   const [message, setMessage] = useState<{ text: string; type: "error" | "info" } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const loadDomains = useCallback(async () => {
-    try {
-      const data = await fetchDomains();
-      setDomains(data || []);
-      if (!selectedDomainId && data?.length) {
-        setImportDomainId(data[0].id);
-      }
-    } catch {
-      setDomains([]);
-    }
-  }, [selectedDomainId]);
+  const { domains, loadDomains, addDomain, editDomain, removeDomain } = useDomains();
 
   const loadDownloads = useCallback(async () => {
     try {
@@ -61,6 +51,16 @@ export default function DownloadsPage() {
     loadDomains();
     loadDownloads();
   }, [loadDomains, loadDownloads]);
+
+  useEffect(() => {
+    if (domains.length === 0) return;
+    if (!domains.some((domain) => domain.id === importDomainId)) {
+      setImportDomainId(domains.find((domain) => domain.id === "unclassified")?.id || domains[0].id);
+    }
+    if (selectedDomainId && !domains.some((domain) => domain.id === selectedDomainId)) {
+      setSelectedDomainId(null);
+    }
+  }, [domains, importDomainId, selectedDomainId]);
 
   useEffect(() => {
     const hasActive = downloads.some((download) => ["downloading", "ingesting"].includes(download.status));
@@ -239,8 +239,28 @@ export default function DownloadsPage() {
                 下载完成后，选中文献并导入到下方目标领域。
               </p>
             </div>
-            <div className="text-xs text-gray-500">
-              导入目标领域：{selectedDomain?.name || domains.find((domain) => domain.id === importDomainId)?.name || importDomainId}
+            <div className="flex items-center gap-3 text-xs text-gray-500">
+              <span>导入目标领域：{selectedDomain?.name || domains.find((domain) => domain.id === importDomainId)?.name || importDomainId}</span>
+              <DomainManager
+                domains={domains}
+                onCreate={async (payload) => {
+                  const nextDomains = await addDomain(payload);
+                  const created = nextDomains.find((domain) => domain.id === payload.id);
+                  if (created) {
+                    setSelectedDomainId(created.id);
+                    setImportDomainId(created.id);
+                  }
+                }}
+                onUpdate={async (domainId, payload) => {
+                  await editDomain(domainId, payload);
+                }}
+                onDelete={async (domainId) => {
+                  await removeDomain(domainId);
+                  if (selectedDomainId === domainId) setSelectedDomainId(null);
+                  if (importDomainId === domainId) setImportDomainId("unclassified");
+                }}
+                onRefresh={loadDomains}
+              />
             </div>
           </div>
 

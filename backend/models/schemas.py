@@ -132,10 +132,10 @@ class LibraryDomainOut(BaseModel):
 
 
 class LibraryDomainCreate(BaseModel):
-    id: str = Field(min_length=2, max_length=64)
+    id: str = Field(min_length=2, max_length=64, pattern="^[a-z0-9][a-z0-9-]*$")
     name: str = Field(min_length=2, max_length=128)
     description: Optional[str] = None
-    color: Optional[str] = None
+    color: Optional[str] = Field(default=None, pattern="^#[0-9A-Fa-f]{6}$")
     sort_order: int = 0
     is_default: bool = False
 
@@ -143,7 +143,7 @@ class LibraryDomainCreate(BaseModel):
 class LibraryDomainUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=128)
     description: Optional[str] = None
-    color: Optional[str] = None
+    color: Optional[str] = Field(default=None, pattern="^#[0-9A-Fa-f]{6}$")
     sort_order: Optional[int] = None
     is_default: Optional[bool] = None
 

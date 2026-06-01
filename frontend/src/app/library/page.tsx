@@ -5,14 +5,15 @@ import { Archive, Loader2, Pause, Search, Trash2, Upload, X } from "lucide-react
 import {
   cancelIngestionJob,
   deletePaper,
-  fetchDomains,
   fetchIngestionJobs,
   fetchPapers,
   pauseIngestionJob,
   uploadBatchZip,
   uploadPDF,
 } from "@/lib/api";
-import { DomainMatrix, type LibraryDomainSummary } from "@/components/library/domain-matrix";
+import { DomainMatrix } from "@/components/library/domain-matrix";
+import { DomainManager } from "@/components/domains/domain-manager";
+import { useDomains } from "@/hooks/use-domains";
 
 interface Paper {
   id: string;
@@ -36,7 +37,6 @@ const PAGE_SIZE = 20;
 
 export default function LibraryPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
-  const [domains, setDomains] = useState<LibraryDomainSummary[]>([]);
   const [jobs, setJobs] = useState<IngestionJob[]>([]);
   const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
   const [uploadDomainId, setUploadDomainId] = useState<string>("unclassified");
@@ -48,15 +48,7 @@ export default function LibraryPage() {
   const pdfRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const loadDomains = useCallback(async () => {
-    try {
-      const data = await fetchDomains();
-      setDomains(data || []);
-    } catch {
-      setDomains([]);
-    }
-  }, []);
+  const { domains, loadDomains, addDomain, editDomain, removeDomain } = useDomains();
 
   const loadJobs = useCallback(async () => {
     try {
@@ -83,7 +75,6 @@ export default function LibraryPage() {
   }, [keyword, page, selectedDomainId]);
 
   useEffect(() => {
-    loadDomains();
     loadJobs();
   }, [loadDomains, loadJobs]);
 
@@ -94,6 +85,16 @@ export default function LibraryPage() {
   useEffect(() => {
     setPage(1);
   }, [selectedDomainId]);
+
+  useEffect(() => {
+    if (domains.length === 0) return;
+    if (!domains.some((domain) => domain.id === uploadDomainId)) {
+      setUploadDomainId(domains.find((domain) => domain.id === "unclassified")?.id || domains[0].id);
+    }
+    if (selectedDomainId && !domains.some((domain) => domain.id === selectedDomainId)) {
+      setSelectedDomainId(null);
+    }
+  }, [domains, selectedDomainId, uploadDomainId]);
 
   useEffect(() => {
     const hasActiveJob = jobs.some((job) => ["extracting", "queued", "running", "paused"].includes(job.status));
@@ -244,6 +245,27 @@ export default function LibraryPage() {
                 ))}
               </select>
             </label>
+
+            <DomainManager
+              domains={domains}
+              onCreate={async (payload) => {
+                const nextDomains = await addDomain(payload);
+                const created = nextDomains.find((domain) => domain.id === payload.id);
+                if (created) setUploadDomainId(created.id);
+                await loadPapers();
+              }}
+              onUpdate={async (domainId, payload) => {
+                await editDomain(domainId, payload);
+                await loadPapers();
+              }}
+              onDelete={async (domainId) => {
+                await removeDomain(domainId);
+                if (selectedDomainId === domainId) setSelectedDomainId(null);
+                if (uploadDomainId === domainId) setUploadDomainId("unclassified");
+                await loadPapers();
+              }}
+              onRefresh={loadDomains}
+            />
 
             <input
               ref={zipRef}

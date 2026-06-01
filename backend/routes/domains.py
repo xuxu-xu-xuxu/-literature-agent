@@ -22,7 +22,10 @@ async def get_domains():
 
 @router.post("/domains")
 async def create_domain(payload: LibraryDomainCreate):
-    created = await create_library_domain(payload.model_dump())
+    try:
+        created = await create_library_domain(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return created
 
 
@@ -36,10 +39,13 @@ async def patch_domain(domain_id: str, payload: LibraryDomainUpdate):
 
 @router.delete("/domains/{domain_id}")
 async def remove_domain(domain_id: str):
-    deleted = await delete_library_domain(domain_id)
+    try:
+        deleted = await delete_library_domain(domain_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="Domain not found")
-    return {"deleted": domain_id}
+    return deleted
 
 
 @router.post("/papers/{paper_id}/domain")

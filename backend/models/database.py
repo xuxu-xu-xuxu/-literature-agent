@@ -197,6 +197,29 @@ class SolidElectrolyteRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class SolidElectrolyteProperty(Base):
+    __tablename__ = "solid_electrolyte_properties"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    paper_id: Mapped[str] = mapped_column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
+    material_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    normalized_formula: Mapped[str] = mapped_column(String(256), nullable=True)
+    property_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=True)
+    value_max: Mapped[float] = mapped_column(Float, nullable=True)
+    unit: Mapped[str] = mapped_column(String(64), nullable=True)
+    raw_value: Mapped[float] = mapped_column(Float, nullable=True)
+    raw_unit: Mapped[str] = mapped_column(String(64), nullable=True)
+    temperature_value: Mapped[float] = mapped_column(Float, nullable=True)
+    temperature_unit: Mapped[str] = mapped_column(String(32), nullable=True)
+    method: Mapped[str] = mapped_column(String(64), default="unknown")
+    condition_text: Mapped[str] = mapped_column(Text, nullable=True)
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_chunk_id: Mapped[str] = mapped_column(String(128), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    status: Mapped[str] = mapped_column(String(32), default="candidate")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class User(Base):
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_new_uuid)

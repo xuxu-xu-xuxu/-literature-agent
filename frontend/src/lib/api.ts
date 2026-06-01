@@ -89,6 +89,21 @@ export async function triggerSolidElectrolyteExtraction(paperId: string) {
   return resp.json();
 }
 
+export async function triggerSolidElectrolytePropertyMining(params?: {
+  replace?: boolean;
+  limit_per_query?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/extract/solid-electrolyte/properties/mine?${searchParams}`, { method: "POST" });
+  if (!resp.ok) throw new Error("Solid electrolyte property mining failed");
+  return resp.json();
+}
+
 export async function triggerExtraction(paperId: string) {
   const resp = await fetch(`${BASE}/extract/${paperId}`, { method: "POST" });
   if (!resp.ok) throw new Error("Extraction failed");
@@ -128,6 +143,21 @@ export async function deletePaper(paperId: string) {
 export async function runSchemaConvergence() {
   const resp = await fetch(`${BASE}/entities/converge`, { method: "POST" });
   if (!resp.ok) throw new Error("Convergence failed");
+  return resp.json();
+}
+
+export async function triggerEntityMining(params: {
+  domain_id: string;
+  replace?: boolean;
+  paper_limit?: number;
+  chunk_limit?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined) searchParams.set(k, String(v));
+  });
+  const resp = await fetch(`${BASE}/entities/mine?${searchParams}`, { method: "POST" });
+  if (!resp.ok) throw new Error("Entity mining failed");
   return resp.json();
 }
 
@@ -204,6 +234,81 @@ export async function fetchCategories() {
   return resp.json();
 }
 
+export async function fetchSolidElectrolytePropertyRecords(params?: {
+  property_name?: string;
+  confidence_min?: number;
+  status?: string;
+  page?: number;
+  page_size?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch solid electrolyte property records");
+  return resp.json();
+}
+
+export async function fetchPropertyConductivityByMaterial(params?: {
+  confidence_min?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties/conductivity/by-material?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch conductivity by material");
+  return resp.json();
+}
+
+export async function fetchPropertyConductivityByElement(params?: {
+  metric?: "avg" | "median";
+  confidence_min?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties/conductivity/by-element?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch conductivity by element");
+  return resp.json();
+}
+
+export async function fetchPropertyElementFrequency(params?: {
+  confidence_min?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties/elements/frequency?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch element frequency");
+  return resp.json();
+}
+
+export async function fetchElectrochemicalWindowByMaterial(params?: {
+  confidence_min?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties/electrochemical-window/by-material?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch electrochemical window by material");
+  return resp.json();
+}
+
 export async function fetchDomains() {
   const resp = await fetch(`${BASE}/domains`);
   if (!resp.ok) throw new Error("Failed to fetch domains");
@@ -238,7 +343,14 @@ export async function createDomain(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error("Failed to create domain");
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const body = await resp.json();
+      detail = body.detail || "";
+    } catch {}
+    throw new Error(detail || "Failed to create domain");
+  }
   return resp.json();
 }
 
@@ -254,7 +366,27 @@ export async function updateDomain(domainId: string, payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error("Failed to update domain");
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const body = await resp.json();
+      detail = body.detail || "";
+    } catch {}
+    throw new Error(detail || "Failed to update domain");
+  }
+  return resp.json();
+}
+
+export async function deleteDomain(domainId: string) {
+  const resp = await fetch(`${BASE}/domains/${domainId}`, { method: "DELETE" });
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const body = await resp.json();
+      detail = body.detail || "";
+    } catch {}
+    throw new Error(detail || "Failed to delete domain");
+  }
   return resp.json();
 }
 

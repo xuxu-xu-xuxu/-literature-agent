@@ -1,8 +1,9 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Database, GitMerge, Loader2, ChevronRight } from "lucide-react";
+import { ChevronRight, Database, GitMerge, Loader2, Pickaxe } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fetchEntities, runSchemaConvergence } from "@/lib/api";
+import { fetchEntities, runSchemaConvergence, triggerEntityMining } from "@/lib/api";
+import { useDomains } from "@/hooks/use-domains";
 
 interface Entity {
   id: number;
@@ -13,12 +14,18 @@ interface Entity {
 }
 
 export function EntityBrowser() {
+  const { domains } = useDomains();
   const [entities, setEntities] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(false);
   const [converging, setConverging] = useState(false);
+  const [mining, setMining] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [mineDomainId, setMineDomainId] = useState("solid-state");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [synonyms, setSynonyms] = useState<{ canonical: string; variant: string }[]>([]);
+  const selectedMineDomain = domains.find((domain) => domain.id === mineDomainId);
+  const canMineSelectedDomain = mineDomainId === "solid-state";
 
   const loadEntities = async () => {
     setLoading(true);
@@ -60,6 +67,26 @@ export function EntityBrowser() {
     }
   };
 
+  const handleMineEntities = async () => {
+    if (!canMineSelectedDomain) return;
+    setMining(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await triggerEntityMining({
+        domain_id: mineDomainId,
+        replace: true,
+        chunk_limit: 10000,
+      });
+      setMessage(`已处理 ${result.paper_count || 0} 篇文献，生成 ${result.entity_count || 0} 条实体`);
+      await loadEntities();
+    } catch {
+      setError("实体提取失败");
+    } finally {
+      setMining(false);
+    }
+  };
+
   const grouped = entities.reduce<Record<string, Entity[]>>((acc, e) => {
     if (!acc[e.entity_type]) acc[e.entity_type] = [];
     acc[e.entity_type].push(e);
@@ -97,6 +124,45 @@ export function EntityBrowser() {
             Schema收敛
           </Button>
         </div>
+      </div>
+
+      <div className="px-4 py-3 border-b border-[#e5e7eb] bg-[#fafafa]/60 shrink-0">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px]">
+            <label className="block text-[11px] text-gray-500 mb-1">实体提取领域</label>
+            <select
+              value={mineDomainId}
+              onChange={(event) => {
+                setMineDomainId(event.target.value);
+                setMessage("");
+              }}
+              className="h-9 w-full rounded-md border border-[#d1d5db] bg-white px-3 text-sm text-gray-700 outline-none focus:border-[#1a2744]"
+            >
+              {domains.map((domain) => (
+                <option key={domain.id} value={domain.id}>
+                  {domain.name}
+                </option>
+              ))}
+              {domains.length === 0 && <option value="solid-state">固态电池</option>}
+            </select>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleMineEntities}
+            disabled={mining || !canMineSelectedDomain}
+            className="h-9 gap-1 bg-[#1a2744] hover:bg-[#2d3f5e] text-white disabled:opacity-50"
+            title={canMineSelectedDomain ? "提取固态电解质实体" : "当前只支持固态电解质领域"}
+          >
+            {mining ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pickaxe className="w-4 h-4" />}
+            提取实体
+          </Button>
+          <div className="text-xs text-gray-500 pb-2">
+            {canMineSelectedDomain
+              ? `当前抽取器：固态电解质，目标 ${selectedMineDomain?.ingested_count ?? 0} 篇已入库文献`
+              : "当前只支持固态电解质领域，其他领域需要单独抽取器"}
+          </div>
+        </div>
+        {message && <div className="mt-2 text-xs text-emerald-700">{message}</div>}
       </div>
 
       {synonyms.length > 0 && (

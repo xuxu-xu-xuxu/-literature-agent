@@ -37,6 +37,48 @@ def test_get_domains_returns_tiles():
     monkeypatch.undo()
 
 
+def test_create_domain_duplicate_returns_400(monkeypatch):
+    from backend.routes import domains as domains_route
+
+    async def fake_create(payload):
+        raise ValueError("Domain already exists")
+
+    monkeypatch.setattr(domains_route, "create_library_domain", fake_create)
+
+    resp = client.post("/api/domains", json={"id": "solid-state", "name": "固态电池"})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Domain already exists"
+
+
+def test_delete_default_domain_returns_400(monkeypatch):
+    from backend.routes import domains as domains_route
+
+    async def fake_delete(domain_id):
+        raise ValueError("Default domains cannot be deleted")
+
+    monkeypatch.setattr(domains_route, "delete_library_domain", fake_delete)
+
+    resp = client.delete("/api/domains/unclassified")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Default domains cannot be deleted"
+
+
+def test_delete_domain_returns_reassignment_summary(monkeypatch):
+    from backend.routes import domains as domains_route
+
+    async def fake_delete(domain_id):
+        return {"deleted": domain_id, "reassigned_to": "unclassified", "paper_count": 3}
+
+    monkeypatch.setattr(domains_route, "delete_library_domain", fake_delete)
+
+    resp = client.delete("/api/domains/custom-domain")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": "custom-domain", "reassigned_to": "unclassified", "paper_count": 3}
+
+
 def test_upload_accepts_domain_id(monkeypatch, tmp_path):
     from backend.routes import upload as upload_route
 

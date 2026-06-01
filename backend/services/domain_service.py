@@ -57,6 +57,12 @@ async def list_library_domains() -> list[dict]:
 
 async def create_library_domain(payload) -> dict:
     async for db in get_db():
+        existing_id = await db.get(LibraryDomain, payload["id"])
+        if existing_id:
+            raise ValueError("Domain already exists")
+        existing_name = await db.scalar(select(LibraryDomain).where(LibraryDomain.name == payload["name"]))
+        if existing_name:
+            raise ValueError("Domain name already exists")
         domain = LibraryDomain(**payload)
         db.add(domain)
         await db.commit()
@@ -89,15 +95,27 @@ async def update_library_domain(domain_id: str, payload) -> dict:
         }
 
 
-async def delete_library_domain(domain_id: str) -> bool:
+async def delete_library_domain(domain_id: str) -> dict:
     async for db in get_db():
         domain = await db.get(LibraryDomain, domain_id)
         if not domain:
-            return False
-        await db.execute(delete(PaperDomainAssignment).where(PaperDomainAssignment.domain_id == domain_id))
+            return {}
+        if domain.is_default:
+            raise ValueError("Default domains cannot be deleted")
+        fallback = await db.get(LibraryDomain, "unclassified")
+        if not fallback:
+            raise ValueError("Fallback domain not found")
+        assignments = (
+            await db.execute(
+                select(PaperDomainAssignment).where(PaperDomainAssignment.domain_id == domain_id)
+            )
+        ).scalars().all()
+        for assignment in assignments:
+            assignment.domain_id = fallback.id
+        reassigned_count = len(assignments)
         await db.delete(domain)
         await db.commit()
-        return True
+        return {"deleted": domain_id, "reassigned_to": fallback.id, "paper_count": reassigned_count}
 
 
 async def assign_paper_domain(db, paper_id: str, domain_id: str) -> None:

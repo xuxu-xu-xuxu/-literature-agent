@@ -159,8 +159,12 @@ async def _process_paper(paper_id: str, file_path: str, auto_mine: bool = False)
         paper = await db.get(Paper, paper_id)
         if paper:
             doc_title = (result.get("title") or "").strip()
-            if doc_title and len(doc_title) > len(paper.title):
+            if doc_title:
                 paper.title = doc_title
+            paper.authors = result.get("authors")
+            paper.year = result.get("year")
+            paper.journal = result.get("journal")
+            paper.abstract = result.get("abstract")
             paper.full_text = result["full_text"]
             paper.status = "ingested"
             await db.commit()
