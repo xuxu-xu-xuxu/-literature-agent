@@ -1,51 +1,28 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Query
 from sqlalchemy import select
-from backend.models.database import get_db, Entity, EntitySchema, EntitySynonym
-from backend.models.schemas import EntityQueryParams
+from backend.models.database import EntitySynonym, get_db
 from backend.services.entity_mining import mine_entities
 from backend.services.schema_convergence import run_schema_convergence
+from backend.services.topic_navigation import load_topic_cards
 
 router = APIRouter(prefix="/api", tags=["entities"])
 
 
 @router.get("/entities")
-async def query_entities(params: EntityQueryParams = Depends()):
-    async for db in get_db():
-        query = select(Entity)
-        if params.entity_type:
-            query = query.where(Entity.entity_type == params.entity_type)
-        if params.paper_id:
-            query = query.where(Entity.paper_id == params.paper_id)
-        if params.attribute_key and params.attribute_value:
-            query = query.where(Entity.attributes[params.attribute_key].as_string() == params.attribute_value)
-        query = query.offset((params.page - 1) * params.page_size).limit(params.page_size)
-
-        result = await db.execute(query)
-        entities = result.scalars().all()
-        break
-
-    return {
-        "items": [
-            {
-                "id": e.id,
-                "paper_id": e.paper_id,
-                "entity_type": e.entity_type,
-                "attributes": e.attributes,
-                "source_span": e.source_span,
-            }
-            for e in entities
-        ],
-        "page": params.page,
-        "page_size": params.page_size,
-    }
+async def query_entities(
+    domain_id: str | None = Query(default=None),
+    topic_limit: int = Query(default=8, ge=1, le=20),
+    papers_per_topic: int = Query(default=4, ge=1, le=8),
+):
+    return await load_topic_cards(
+        domain_id=domain_id,
+        max_topics=topic_limit,
+        papers_per_topic=papers_per_topic,
+    )
 
 @router.get("/entities/types")
 async def list_entity_types():
-    async for db in get_db():
-        result = await db.execute(select(Entity.entity_type).distinct())
-        types = [row[0] for row in result.fetchall()]
-        break
-    return {"types": types}
+    return {"types": ["topic", "paper", "material", "method", "problem", "property"]}
 
 @router.get("/entities/synonyms")
 async def list_synonyms():

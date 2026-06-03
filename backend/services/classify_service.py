@@ -1,24 +1,27 @@
-"""Paper classification service: LLM auto-tagging + vector clustering."""
+"""Paper classification service: LLM tagging + vector clustering."""
+
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import re
 
-from sqlalchemy import func, select, delete as sa_delete
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func, select
 
 from backend.llm import get_llm_client
-from backend.models.database import get_db, Paper, PaperTag
+from backend.models.database import Paper, PaperTag, get_db
 
 logger = logging.getLogger(__name__)
 
-# ── Tag vocabulary ───────────────────────────────────────────────────
 TAG_VOCABULARY = {
     "研究领域": ["CO2还原", "固态电解质", "电催化", "电池材料", "表征技术", "计算模拟", "合成制备", "机理研究"],
     "材料类型": ["氧化物", "硫化物", "聚合物", "金属合金", "碳材料", "MOF/COF", "二维材料", "钙钛矿"],
     "方法类型": ["实验研究", "DFT计算", "AIMD模拟", "机器学习", "原位表征", "理论分析"],
 }
 
-ALL_TAGS = [t for group in TAG_VOCABULARY.values() for t in group]
+ALL_TAGS = [tag for group in TAG_VOCABULARY.values() for tag in group]
 
 CLASSIFY_PROMPT = """你是一个材料科学文献分类专家。请根据以下论文内容，从预设标签列表中选择最匹配的 2-5 个标签。
 
@@ -41,11 +44,8 @@ CLUSTER_NAME_PROMPT = """以下是同一聚类中的论文标题列表。请根�
 {titles}"""
 
 
-# ── JSON parsing helpers (reuse pattern from extract_service.py) ─────
 def _clean_json_response(response: str) -> str:
-    """Extract JSON from LLM response that may contain extra text."""
     response = response.strip()
-    # Try to find JSON array or object boundaries
     for start_char, end_char in [("[", "]"), ("{", "}")]:
         start = response.find(start_char)
         end = response.rfind(end_char)
@@ -55,25 +55,45 @@ def _clean_json_response(response: str) -> str:
 
 
 def _parse_tag_response(response: str) -> list[str]:
-    """Parse LLM tag response, filtering to known vocabulary."""
     cleaned = _clean_json_response(response)
     try:
         tags = json.loads(cleaned)
         if isinstance(tags, list):
-            return [t for t in tags if isinstance(t, str) and t in ALL_TAGS]
+            return [tag for tag in tags if isinstance(tag, str) and tag in ALL_TAGS]
     except json.JSONDecodeError:
-        # Try to extract quoted strings as fallback
         matches = re.findall(r'"([^"]+)"', cleaned)
-        tags = [m for m in matches if m in ALL_TAGS]
+        tags = [match for match in matches if match in ALL_TAGS]
         if tags:
             return tags
     return []
 
 
-# ── LLM Classification (Plan C) ──────────────────────────────────────
+def _normalize_cluster_text(*parts: str | None, max_length: int = 8000) -> str:
+    joined = "\n".join(part.strip() for part in parts if part and part.strip())
+    return joined[:max_length]
+
+
+def _build_cluster_documents(rows: list[tuple[str | None, str | None, str | None, str | None]]) -> list[dict]:
+    papers: list[dict] = []
+    for paper_id, title, abstract, full_text in rows:
+        cluster_text = _normalize_cluster_text(
+            abstract,
+            title,
+            (full_text or "")[:4000],
+        )
+        if not cluster_text:
+            continue
+        papers.append(
+            {
+                "id": paper_id,
+                "title": title or "Untitled paper",
+                "cluster_text": cluster_text,
+            }
+        )
+    return papers
+
+
 async def classify_single_paper(paper_id: str) -> list[str]:
-    """Classify a single paper using LLM, store tags in DB. Idempotent."""
-    # Fetch paper
     async for db in get_db():
         paper = await db.get(Paper, paper_id)
         break
@@ -81,15 +101,8 @@ async def classify_single_paper(paper_id: str) -> list[str]:
         logger.warning("Paper %s not found, skipping classification", paper_id)
         return []
 
-    # Build content for classification
-    text_parts = []
-    if paper.abstract:
-        text_parts.append(paper.abstract)
-    if paper.full_text:
-        text_parts.append(paper.full_text[:4000])
-    abstract = "\n".join(text_parts)[:8000] or paper.title or ""
+    abstract = _normalize_cluster_text(paper.abstract, paper.title, (paper.full_text or "")[:4000])
 
-    # Call LLM
     prompt = CLASSIFY_PROMPT.format(
         tag_list=", ".join(ALL_TAGS),
         title=paper.title or "",
@@ -99,15 +112,14 @@ async def classify_single_paper(paper_id: str) -> list[str]:
         llm = get_llm_client()
         response = await llm.chat([{"role": "user", "content": prompt}])
         tags = _parse_tag_response(response)
-    except Exception as e:
-        logger.error("LLM classification failed for paper %s: %s", paper_id, e)
+    except Exception as exc:
+        logger.error("LLM classification failed for paper %s: %s", paper_id, exc)
         return []
 
     if not tags:
         logger.info("No valid tags returned for paper %s", paper_id)
         return []
 
-    # Store tags (upsert-like: skip duplicates)
     stored = 0
     async for db in get_db():
         for tag_name in tags:
@@ -124,121 +136,107 @@ async def classify_single_paper(paper_id: str) -> list[str]:
 
 
 async def classify_all_papers() -> dict:
-    """Batch-classify all papers that don't yet have LLM tags."""
-    # Find papers without LLM tags
     async for db in get_db():
-        sub = select(PaperTag.paper_id).where(PaperTag.source == "llm")
+        subquery = select(PaperTag.paper_id).where(PaperTag.source == "llm")
         result = await db.execute(
             select(Paper.id, Paper.title)
             .where(Paper.status == "ingested")
-            .where(Paper.id.not_in(sub))
+            .where(Paper.id.not_in(subquery))
         )
-        papers = [{"id": r[0], "title": r[1]} for r in result.fetchall()]
+        papers = [{"id": row[0], "title": row[1]} for row in result.fetchall()]
         break
 
     if not papers:
         return {"total": 0, "classified": 0, "skipped": 0}
 
-    total = len(papers)
     classified = 0
     errors = []
+    total = len(papers)
 
-    for i, p in enumerate(papers):
+    for index, paper in enumerate(papers, start=1):
         try:
-            tags = await classify_single_paper(p["id"])
+            tags = await classify_single_paper(paper["id"])
             if tags:
                 classified += 1
-            logger.info("[%d/%d] Classified: %s", i + 1, total, p["title"][:60])
-        except Exception as e:
-            errors.append({"paper_id": p["id"], "title": p["title"], "error": str(e)})
-            logger.error("[%d/%d] Failed: %s — %s", i + 1, total, p["title"][:60], e)
-        await asyncio.sleep(0.5)  # Rate limiting
+            logger.info("[%d/%d] Classified: %s", index, total, paper["title"][:60])
+        except Exception as exc:
+            errors.append({"paper_id": paper["id"], "title": paper["title"], "error": str(exc)})
+            logger.error("[%d/%d] Failed: %s - %s", index, total, paper["title"][:60], exc)
+        await asyncio.sleep(0.5)
 
     return {"total": total, "classified": classified, "errors": errors}
 
 
-# ── Vector Clustering (Plan A) ───────────────────────────────────────
 async def cluster_papers(n_clusters: int = 8) -> dict:
-    """Cluster papers by abstract embeddings, name clusters with LLM."""
     from backend.services.embedding import embed_single
 
-    # Fetch papers with abstracts
     async for db in get_db():
         result = await db.execute(
-            select(Paper.id, Paper.title, Paper.abstract)
+            select(Paper.id, Paper.title, Paper.abstract, Paper.full_text)
             .where(Paper.status == "ingested")
-            .where(Paper.abstract.isnot(None))
-            .where(Paper.abstract != "")
         )
         rows = result.fetchall()
         break
 
-    papers = [{"id": r[0], "title": r[1], "abstract": r[2]} for r in rows]
+    papers = _build_cluster_documents(rows)
     if len(papers) < 2:
-        return {"clusters": [], "error": "Not enough papers with abstracts"}
+        return {"clusters": [], "error": "Not enough papers with clusterable text"}
 
-    # Embed all abstracts
-    logger.info("Embedding %d paper abstracts for clustering...", len(papers))
+    logger.info("Embedding %d paper documents for clustering...", len(papers))
     vectors = []
     valid_papers = []
-    for p in papers:
+    for paper in papers:
         try:
-            vec = await embed_single(p["abstract"])
+            vec = await embed_single(paper["cluster_text"])
             vectors.append(vec)
-            valid_papers.append(p)
-        except Exception as e:
-            logger.warning("Embedding failed for %s: %s", p["id"], e)
+            valid_papers.append(paper)
+        except Exception as exc:
+            logger.warning("Embedding failed for %s: %s", paper["id"], exc)
 
     if len(valid_papers) < 2:
         return {"clusters": [], "error": "Not enough successful embeddings"}
 
-    # K-means clustering
     from sklearn.cluster import KMeans
     import numpy as np
 
-    X = np.array(vectors)
+    x = np.array(vectors)
     actual_k = min(n_clusters, len(valid_papers))
     kmeans = KMeans(n_clusters=actual_k, random_state=42, n_init=10)
-    labels = kmeans.fit_predict(X)
+    labels = kmeans.fit_predict(x)
 
-    # Group papers by cluster
-    clusters = {}
-    for i, label in enumerate(labels):
-        label = int(label)
-        if label not in clusters:
-            clusters[label] = []
-        clusters[label].append(valid_papers[i])
+    clusters: dict[int, list[dict]] = {}
+    for index, label in enumerate(labels):
+        clusters.setdefault(int(label), []).append(valid_papers[index])
 
-    # Name each cluster with LLM
     cluster_results = []
     llm = get_llm_client()
     for label, cluster_papers_list in clusters.items():
-        sample_titles = [p["title"] for p in cluster_papers_list[:10]]
-        prompt = CLUSTER_NAME_PROMPT.format(titles="\n".join(f"- {t}" for t in sample_titles))
+        sample_titles = [paper["title"] for paper in cluster_papers_list[:10]]
+        prompt = CLUSTER_NAME_PROMPT.format(titles="\n".join(f"- {title}" for title in sample_titles))
         try:
             name = (await llm.chat([{"role": "user", "content": prompt}])).strip()
-            # Clean up: remove quotes, newlines
             name = name.replace('"', "").replace("'", "").replace("\n", "").strip()
         except Exception:
             name = f"聚类 {label + 1}"
 
-        cluster_results.append({
-            "name": name,
-            "count": len(cluster_papers_list),
-            "paper_ids": [p["id"] for p in cluster_papers_list],
-        })
+        cluster_results.append(
+            {
+                "name": name,
+                "count": len(cluster_papers_list),
+                "paper_ids": [paper["id"] for paper in cluster_papers_list],
+            }
+        )
 
-    # Store cluster tags (delete old cluster tags first, then insert new)
     async for db in get_db():
         await db.execute(sa_delete(PaperTag).where(PaperTag.source == "cluster"))
         await db.commit()
         break
 
-    for cr in cluster_results:
-        tag_name = f"[聚类] {cr['name']}"
+    for cluster_result in cluster_results:
+        tag_name = f"[聚类] {cluster_result['name']}"
         async for db in get_db():
-            for pid in cr["paper_ids"]:
-                db.add(PaperTag(paper_id=pid, tag=tag_name, source="cluster"))
+            for paper_id in cluster_result["paper_ids"]:
+                db.add(PaperTag(paper_id=paper_id, tag=tag_name, source="cluster"))
             await db.commit()
             break
 
@@ -246,36 +244,25 @@ async def cluster_papers(n_clusters: int = 8) -> dict:
     return {"clusters": cluster_results}
 
 
-# ── Category Aggregation ─────────────────────────────────────────────
 async def get_categories() -> list[dict]:
-    """Return all categories with paper counts and sample papers."""
     async for db in get_db():
         result = await db.execute(
             select(PaperTag.tag, func.count(PaperTag.paper_id).label("cnt"))
             .group_by(PaperTag.tag)
             .order_by(func.count(PaperTag.paper_id).desc())
         )
-        tag_counts = {r[0]: r[1] for r in result.fetchall()}
+        tag_counts = {row[0]: row[1] for row in result.fetchall()}
         break
 
     categories = []
     for group_name, group_tags in TAG_VOCABULARY.items():
         for tag_name in group_tags:
-            cnt = tag_counts.get(tag_name, 0)
-            if cnt > 0:
-                categories.append({
-                    "tag": tag_name,
-                    "count": cnt,
-                    "category": group_name,
-                })
+            count = tag_counts.get(tag_name, 0)
+            if count > 0:
+                categories.append({"tag": tag_name, "count": count, "category": group_name})
 
-    # Also include cluster tags
-    for tag_name, cnt in tag_counts.items():
+    for tag_name, count in tag_counts.items():
         if tag_name.startswith("[聚类]"):
-            categories.append({
-                "tag": tag_name,
-                "count": cnt,
-                "category": "聚类结果",
-            })
+            categories.append({"tag": tag_name, "count": count, "category": "聚类结果"})
 
     return categories

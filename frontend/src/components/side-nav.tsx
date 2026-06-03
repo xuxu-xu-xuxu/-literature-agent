@@ -8,10 +8,10 @@ const navItems = [
   { href: "/", label: "聊天", icon: MessageCircle },
   { href: "/library", label: "文献库", icon: Library },
   { href: "/downloads", label: "下载", icon: Download },
-  { href: "/graph", label: "图谱", icon: Network },
-  { href: "/docs", label: "文档", icon: BookOpenText },
-  { href: "/analytics", label: "分析", icon: BarChart3 },
   { href: "/entities", label: "实体", icon: Microscope },
+  { href: "/graph", label: "图谱", icon: Network },
+  { href: "/analytics", label: "分析", icon: BarChart3 },
+  { href: "/docs", label: "文档", icon: BookOpenText },
 ];
 
 export function SideNav() {
