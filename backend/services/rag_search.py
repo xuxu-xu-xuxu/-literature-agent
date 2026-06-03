@@ -7,6 +7,9 @@ RERANK_K = 20
 ENABLE_RERANK = True
 
 async def hybrid_search(query: str, top_k: int = RERANK_K, scope_paper_ids: list[str] | None = None) -> list[dict]:
+    if scope_paper_ids is not None and len(scope_paper_ids) == 0:
+        return []
+
     query_vec = await embed_single(query)
 
     col = init_milvus()

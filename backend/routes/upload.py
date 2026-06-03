@@ -6,7 +6,7 @@ import zipfile
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Form, HTTPException
 from sqlalchemy import select
 
-from backend.models.database import get_db, IngestionJob, Paper, PaperProcessingTask
+from backend.models.database import get_db, IngestionJob, Paper, PaperDomainAssignment, PaperProcessingTask, LibraryDomain
 from backend.services.pdf_service import save_upload, compute_paper_id
 from backend.services.ingestion import ingest_pdf
 from backend.config import get_settings
@@ -21,6 +21,7 @@ async def upload_pdf(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     auto_mine: bool = Form(default=False),
+    domain_id: str = Form(default="unclassified"),
 ):
     settings = get_settings()
     content = await file.read()
@@ -31,7 +32,11 @@ async def upload_pdf(
         existing = await db.get(Paper, paper_id)
         if existing:
             return {"paper_id": paper_id, "status": "duplicate", "message": "Paper already exists"}
+        domain = await db.get(LibraryDomain, domain_id) or await db.get(LibraryDomain, "unclassified")
+        if not domain:
+            raise HTTPException(status_code=400, detail="Domain not found")
         db.add(Paper(id=paper_id, title=file.filename, file_path=file_path, status="processing"))
+        db.add(PaperDomainAssignment(paper_id=paper_id, domain_id=domain.id))
         await db.commit()
         break
 
@@ -44,6 +49,7 @@ async def upload_batch(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     auto_mine: bool = Form(default=False),
+    domain_id: str = Form(default="unclassified"),
 ):
     if not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="Batch upload expects a .zip file of PDFs")
@@ -59,7 +65,7 @@ async def upload_batch(
         await db.commit()
         break
 
-    background_tasks.add_task(_process_batch, job_id, zip_path, auto_mine)
+    background_tasks.add_task(_process_batch, job_id, zip_path, auto_mine, domain_id)
     return {"job_id": job_id, "status": "extracting", "total": 0}
 
 
@@ -153,8 +159,12 @@ async def _process_paper(paper_id: str, file_path: str, auto_mine: bool = False)
         paper = await db.get(Paper, paper_id)
         if paper:
             doc_title = (result.get("title") or "").strip()
-            if doc_title and len(doc_title) > len(paper.title):
+            if doc_title:
                 paper.title = doc_title
+            paper.authors = result.get("authors")
+            paper.year = result.get("year")
+            paper.journal = result.get("journal")
+            paper.abstract = result.get("abstract")
             paper.full_text = result["full_text"]
             paper.status = "ingested"
             await db.commit()
@@ -172,7 +182,7 @@ async def _process_paper(paper_id: str, file_path: str, auto_mine: bool = False)
     # keep PDF file on disk for reference
 
 
-async def _process_batch(job_id: str, zip_path: str, auto_mine: bool):
+async def _process_batch(job_id: str, zip_path: str, auto_mine: bool, domain_id: str):
     # Phase 1: Extract PDFs from ZIP
     pdf_paths: list[str] = []
     orphan_paths: list[str] = []  # extracted PDFs that turned out to be duplicates, safe to delete
@@ -260,6 +270,7 @@ async def _process_batch(job_id: str, zip_path: str, auto_mine: bool):
             duplicate = False
             async for db in get_db():
                 existing = await db.get(Paper, paper_id)
+                domain = await db.get(LibraryDomain, domain_id) or await db.get(LibraryDomain, "unclassified")
                 task = (await db.execute(
                     select(PaperProcessingTask)
                     .where(PaperProcessingTask.job_id == job_id)
@@ -270,6 +281,8 @@ async def _process_batch(job_id: str, zip_path: str, auto_mine: bool):
                     duplicate = True
                 else:
                     db.add(Paper(id=paper_id, title=filename, file_path=path, status="processing"))
+                    if domain:
+                        db.add(PaperDomainAssignment(paper_id=paper_id, domain_id=domain.id))
                 if task:
                     task.paper_id = paper_id
                     task.stage = "ingesting"

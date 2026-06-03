@@ -78,12 +78,17 @@ async def send_message(conversation_id: str, body: dict, user: User = Depends(ge
         break
 
     scope_paper_ids = body.get("scope_paper_ids") or None
+    scope_domain_id = body.get("scope_domain_id") or None
 
     async def event_stream():
         full_response = ""
         citations = None
         try:
-            async for chunk in generate_answer_stream(query, scope_paper_ids=scope_paper_ids):
+            async for chunk in generate_answer_stream(
+                query,
+                scope_paper_ids=scope_paper_ids,
+                scope_domain_id=scope_domain_id,
+            ):
                 if chunk:
                     yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
                     if not chunk.startswith(("🔍", "\n📚", "\n✅", "📚", "✅")):

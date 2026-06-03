@@ -8,9 +8,10 @@ import { useAuth } from "@/contexts/auth";
 
 interface Props {
   scopePaperIds?: string[];
+  scopeDomainId?: string;
 }
 
-export function ChatPanel({ scopePaperIds }: Props) {
+export function ChatPanel({ scopePaperIds, scopeDomainId }: Props) {
   const { token } = useAuth();
   const [convoId, setConvoId] = useState<string | null>(null);
   const [convos, setConvos] = useState<{ id: string; title: string }[]>([]);
@@ -79,13 +80,13 @@ export function ChatPanel({ scopePaperIds }: Props) {
         .then((data) => {
           setConvoId(data.id);
           loadConvos();
-          sendMessage(query, scopePaperIds || [], data.id);
+          sendMessage(query, { paperIds: scopePaperIds || [], domainId: scopeDomainId }, data.id);
         })
         .catch(() => {})
         .finally(() => { creatingRef.current = false; });
       return;
     }
-    sendMessage(query, scopePaperIds || []);
+    sendMessage(query, { paperIds: scopePaperIds || [], domainId: scopeDomainId });
   };
 
   return (

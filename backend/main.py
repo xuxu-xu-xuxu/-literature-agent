@@ -10,6 +10,9 @@ from backend.routes.entities import router as entities_router
 from backend.routes.analytics import router as analytics_router
 from backend.routes.auth import router as auth_router
 from backend.routes.conversations import router as conversations_router
+from backend.routes.domains import router as domains_router
+from backend.routes.downloads import router as downloads_router
+from backend.routes.knowledge_graph import router as knowledge_graph_router
 from backend.models.database import init_db
 
 
@@ -41,6 +44,9 @@ app.include_router(entities_router)
 app.include_router(analytics_router)
 app.include_router(auth_router)
 app.include_router(conversations_router)
+app.include_router(domains_router)
+app.include_router(downloads_router)
+app.include_router(knowledge_graph_router)
 
 
 @app.get("/api/health")

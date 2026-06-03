@@ -68,6 +68,8 @@ def init_es() -> Elasticsearch:
                     "paper_id": {"type": "keyword"},
                     "chunk_id": {"type": "keyword"},
                     "chunk_index": {"type": "integer"},
+                    "section": {"type": "keyword"},
+                    "chunk_type": {"type": "keyword"},
                     "heading": {"type": "text", "analyzer": "standard"},
                     "text": {"type": "text", "analyzer": "standard"},
                     "token_count": {"type": "integer"},
@@ -105,12 +107,12 @@ async def ingest_pdf(file_path: str) -> dict:
     es = init_es()
     es.index(index="papers", id=paper_id, document={
         "paper_id": paper_id,
-        "title": meta["title"],
+        "title": meta.get("title", ""),
         "authors": meta.get("authors", ""),
-        "abstract": parsed["full_text"][:1000],
+        "abstract": meta.get("abstract") or parsed["full_text"][:1000],
         "full_text": parsed["full_text"],
-        "year": None,
-        "journal": "",
+        "year": meta.get("year"),
+        "journal": meta.get("journal") or "",
     })
     for i, chunk in enumerate(chunks):
         chunk_id = f"{paper_id}_{i}"
@@ -118,6 +120,8 @@ async def ingest_pdf(file_path: str) -> dict:
             "paper_id": paper_id,
             "chunk_id": chunk_id,
             "chunk_index": i,
+            "section": chunk.get("section", chunk.get("heading", "")),
+            "chunk_type": chunk.get("chunk_type", "body"),
             "heading": chunk.get("heading", ""),
             "text": chunk.get("text", ""),
             "token_count": chunk.get("token_count", 0),
@@ -125,8 +129,28 @@ async def ingest_pdf(file_path: str) -> dict:
 
     return {
         "paper_id": paper_id,
-        "title": meta["title"],
+        "title": meta.get("title", ""),
+        "authors": meta.get("authors"),
+        "year": meta.get("year"),
+        "journal": meta.get("journal"),
+        "abstract": meta.get("abstract"),
         "chunk_count": len(chunks),
         "full_text": parsed["full_text"],
         "tables": parsed.get("tables", []),
     }
+
+
+def delete_paper_indexes(paper_id: str) -> None:
+    collection = init_milvus()
+    collection.delete(expr=f'paper_id == "{paper_id}"')
+    collection.flush()
+
+    es = init_es()
+    es.delete_by_query(index="papers", body={"query": {"term": {"paper_id": paper_id}}}, refresh=True)
+    es.delete_by_query(index="paper_chunks", body={"query": {"term": {"paper_id": paper_id}}}, refresh=True)
+
+
+async def reindex_pdf(file_path: str, paper_id: str | None = None) -> dict:
+    target_paper_id = paper_id or parse_pdf(file_path)["paper_id"]
+    delete_paper_indexes(target_paper_id)
+    return await ingest_pdf(file_path)

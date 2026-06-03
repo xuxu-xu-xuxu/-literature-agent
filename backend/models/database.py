@@ -28,11 +28,19 @@ def _get_engine():
 class Base(DeclarativeBase):
     pass
 
+DEFAULT_LIBRARY_DOMAINS = [
+    {"id": "solid-state", "name": "固态电池", "description": "固态电池与固态电解质相关文献", "color": "#1a2744", "sort_order": 1, "is_default": True},
+    {"id": "electrocatalysis", "name": "电催化", "description": "电催化、析氢、CO2 还原等方向", "color": "#2c5282", "sort_order": 2, "is_default": True},
+    {"id": "writing-tips", "name": "写作技巧", "description": "论文写作、表达、审稿与排版经验", "color": "#4c51bf", "sort_order": 3, "is_default": True},
+    {"id": "unclassified", "name": "未分类", "description": "尚未指定领域的文献", "color": "#64748b", "sort_order": 99, "is_default": True},
+]
+
 async def init_db():
     engine, _ = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _patch_existing_schema(conn)
+    await _seed_default_domains()
 
 async def _patch_existing_schema(conn):
     dialect = conn.dialect.name
@@ -51,6 +59,17 @@ async def _patch_existing_schema(conn):
     """))
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_tag ON paper_tags(paper_id, tag)"))
 
+
+async def _seed_default_domains():
+    async for db in get_db():
+        existing = (await db.execute(text("SELECT id FROM library_domains LIMIT 1"))).first()
+        if existing:
+            break
+        for domain in DEFAULT_LIBRARY_DOMAINS:
+            db.add(LibraryDomain(**domain))
+        await db.commit()
+        break
+
 async def get_db() -> AsyncSession:
     _, async_session = _get_engine()
     async with async_session() as session:
@@ -67,6 +86,27 @@ class Paper(Base):
     full_text: Mapped[str] = mapped_column(Text, nullable=True)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="uploaded")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class LibraryDomain(Base):
+    __tablename__ = "library_domains"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=True)
+    color: Mapped[str] = mapped_column(String(32), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class PaperDomainAssignment(Base):
+    __tablename__ = "paper_domain_assignments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    paper_id: Mapped[str] = mapped_column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), unique=True, nullable=False)
+    domain_id: Mapped[str] = mapped_column(String(64), ForeignKey("library_domains.id", ondelete="CASCADE"), nullable=False)
+    assigned_by: Mapped[str] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class Entity(Base):
@@ -117,6 +157,23 @@ class PaperProcessingTask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+
+class DownloadedPaper(Base):
+    __tablename__ = "downloaded_papers"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_new_uuid)
+    identifier: Mapped[str] = mapped_column(String(512), nullable=False)
+    doi: Mapped[str] = mapped_column(String(512), nullable=True)
+    title: Mapped[str] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(128), nullable=True)
+    strategy: Mapped[str] = mapped_column(String(32), default="legal_only")
+    file_path: Mapped[str] = mapped_column(String(1024), nullable=True)
+    paper_id: Mapped[str] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    error: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class SolidElectrolyteRecord(Base):
     __tablename__ = "solid_electrolyte_records"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -137,6 +194,29 @@ class SolidElectrolyteRecord(Base):
     evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
     page_or_section: Mapped[str] = mapped_column(String(256), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class SolidElectrolyteProperty(Base):
+    __tablename__ = "solid_electrolyte_properties"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    paper_id: Mapped[str] = mapped_column(String(64), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
+    material_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    normalized_formula: Mapped[str] = mapped_column(String(256), nullable=True)
+    property_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=True)
+    value_max: Mapped[float] = mapped_column(Float, nullable=True)
+    unit: Mapped[str] = mapped_column(String(64), nullable=True)
+    raw_value: Mapped[float] = mapped_column(Float, nullable=True)
+    raw_unit: Mapped[str] = mapped_column(String(64), nullable=True)
+    temperature_value: Mapped[float] = mapped_column(Float, nullable=True)
+    temperature_unit: Mapped[str] = mapped_column(String(32), nullable=True)
+    method: Mapped[str] = mapped_column(String(64), default="unknown")
+    condition_text: Mapped[str] = mapped_column(Text, nullable=True)
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_chunk_id: Mapped[str] = mapped_column(String(128), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    status: Mapped[str] = mapped_column(String(32), default="candidate")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

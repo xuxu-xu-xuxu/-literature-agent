@@ -1,8 +1,9 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from sqlalchemy import select, func
 from backend.models.database import get_db, Paper, Entity
 from backend.services.extract_service import run_extraction
 from backend.services.solid_electrolyte import extract_solid_electrolyte_records
+from backend.services.solid_electrolyte_properties.mining import mine_solid_electrolyte_properties
 
 router = APIRouter(prefix="/api", tags=["extract"])
 
@@ -46,3 +47,13 @@ async def trigger_solid_electrolyte_extraction(paper_id: str):
         full_text = paper.full_text
         break
     return await extract_solid_electrolyte_records(paper_id, full_text)
+
+
+@router.post("/extract/solid-electrolyte/properties/mine")
+async def trigger_solid_electrolyte_property_mining(
+    background_tasks: BackgroundTasks,
+    replace: bool = Query(default=True),
+    limit_per_query: int = Query(default=40, ge=5, le=200),
+):
+    background_tasks.add_task(mine_solid_electrolyte_properties, replace, limit_per_query)
+    return {"status": "solid_electrolyte_property_mining_started"}

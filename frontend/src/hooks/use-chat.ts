@@ -16,6 +16,11 @@ interface Message {
   citations?: Citation[];
 }
 
+interface ChatScope {
+  paperIds?: string[];
+  domainId?: string;
+}
+
 export function useChat(conversationId: string | null) {
   const { token } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -48,7 +53,7 @@ export function useChat(conversationId: string | null) {
   }, [conversationId, token]);
 
   const sendMessage = useCallback(
-    async (query: string, scopePaperIds: string[] = [], overrideConvoId?: string) => {
+    async (query: string, scope: ChatScope = {}, overrideConvoId?: string) => {
       const effectiveConvoId = overrideConvoId || conversationId;
       if (!effectiveConvoId || !token) return;
 
@@ -66,7 +71,11 @@ export function useChat(conversationId: string | null) {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ query, scope_paper_ids: scopePaperIds }),
+          body: JSON.stringify({
+            query,
+            scope_paper_ids: scope.paperIds || [],
+            scope_domain_id: scope.domainId,
+          }),
           signal: controller.signal,
         });
 

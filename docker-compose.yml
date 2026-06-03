@@ -123,10 +123,13 @@ services:
       - LLM_EXTRACT_CONCURRENCY=${LLM_EXTRACT_CONCURRENCY:-2}
       - ENABLE_STRUCTURED_EXTRACTION=${ENABLE_STRUCTURED_EXTRACTION:-false}
       - EXTRACTION_CONFIDENCE_THRESHOLD=${EXTRACTION_CONFIDENCE_THRESHOLD:-0.7}
+      - SCANSCI_DOWNLOAD_DIR=/app/downloads
+      - SCANSCI_DOWNLOAD_STRATEGY=${SCANSCI_DOWNLOAD_STRATEGY:-legal_only}
     ports:
       - "8080:8080"
     volumes:
       - ./uploads:/app/uploads
+      - ./downloads:/app/downloads
       - ./schemas:/app/schemas
       - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
     healthcheck:

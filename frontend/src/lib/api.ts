@@ -7,6 +7,7 @@ export async function fetchPapers(params?: {
   year_from?: number;
   year_to?: number;
   tag?: string;
+  domain_id?: string;
 }) {
   const searchParams = new URLSearchParams();
   if (params) {
@@ -19,18 +20,20 @@ export async function fetchPapers(params?: {
   return resp.json();
 }
 
-export async function uploadPDF(file: File) {
+export async function uploadPDF(file: File, domainId?: string) {
   const formData = new FormData();
   formData.append("file", file);
+  if (domainId) formData.append("domain_id", domainId);
   const resp = await fetch(`${BASE}/upload`, { method: "POST", body: formData });
   if (!resp.ok) throw new Error("Upload failed");
   return resp.json();
 }
 
-export async function uploadBatchZip(file: File, autoMine = false) {
+export async function uploadBatchZip(file: File, autoMine = false, domainId?: string) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("auto_mine", String(autoMine));
+  if (domainId) formData.append("domain_id", domainId);
   const resp = await fetch(`${BASE}/upload/batch`, { method: "POST", body: formData });
   if (!resp.ok) throw new Error("Batch upload failed");
   return resp.json();
@@ -39,6 +42,32 @@ export async function uploadBatchZip(file: File, autoMine = false) {
 export async function fetchIngestionJobs() {
   const resp = await fetch(`${BASE}/ingestion/jobs`);
   if (!resp.ok) throw new Error("Failed to fetch ingestion jobs");
+  return resp.json();
+}
+
+export async function fetchDownloads() {
+  const resp = await fetch(`${BASE}/downloads`);
+  if (!resp.ok) throw new Error("Failed to fetch downloads");
+  return resp.json();
+}
+
+export async function createDownload(identifier: string, strategy = "legal_only") {
+  const resp = await fetch(`${BASE}/downloads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identifier, strategy }),
+  });
+  if (!resp.ok) throw new Error("Download request failed");
+  return resp.json();
+}
+
+export async function ingestDownload(downloadId: string, domainId: string, autoMine = false) {
+  const resp = await fetch(`${BASE}/downloads/${downloadId}/ingest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain_id: domainId, auto_mine: autoMine }),
+  });
+  if (!resp.ok) throw new Error("Download ingest failed");
   return resp.json();
 }
 
@@ -57,6 +86,21 @@ export async function cancelIngestionJob(jobId: string) {
 export async function triggerSolidElectrolyteExtraction(paperId: string) {
   const resp = await fetch(`${BASE}/extract/solid-electrolyte/${paperId}`, { method: "POST" });
   if (!resp.ok) throw new Error("Solid electrolyte extraction failed");
+  return resp.json();
+}
+
+export async function triggerSolidElectrolytePropertyMining(params?: {
+  replace?: boolean;
+  limit_per_query?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/extract/solid-electrolyte/properties/mine?${searchParams}`, { method: "POST" });
+  if (!resp.ok) throw new Error("Solid electrolyte property mining failed");
   return resp.json();
 }
 
@@ -99,6 +143,21 @@ export async function deletePaper(paperId: string) {
 export async function runSchemaConvergence() {
   const resp = await fetch(`${BASE}/entities/converge`, { method: "POST" });
   if (!resp.ok) throw new Error("Convergence failed");
+  return resp.json();
+}
+
+export async function triggerEntityMining(params: {
+  domain_id: string;
+  replace?: boolean;
+  paper_limit?: number;
+  chunk_limit?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined) searchParams.set(k, String(v));
+  });
+  const resp = await fetch(`${BASE}/entities/mine?${searchParams}`, { method: "POST" });
+  if (!resp.ok) throw new Error("Entity mining failed");
   return resp.json();
 }
 
@@ -172,6 +231,172 @@ export async function fetchConductivityByTemperature() {
 export async function fetchCategories() {
   const resp = await fetch(`${BASE}/papers/categories`);
   if (!resp.ok) throw new Error("Failed to fetch categories");
+  return resp.json();
+}
+
+export async function fetchSolidElectrolytePropertyRecords(params?: {
+  property_name?: string;
+  confidence_min?: number;
+  status?: string;
+  page?: number;
+  page_size?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch solid electrolyte property records");
+  return resp.json();
+}
+
+export async function fetchPropertyConductivityByMaterial(params?: {
+  confidence_min?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties/conductivity/by-material?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch conductivity by material");
+  return resp.json();
+}
+
+export async function fetchPropertyConductivityByElement(params?: {
+  metric?: "avg" | "median";
+  confidence_min?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties/conductivity/by-element?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch conductivity by element");
+  return resp.json();
+}
+
+export async function fetchPropertyElementFrequency(params?: {
+  confidence_min?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties/elements/frequency?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch element frequency");
+  return resp.json();
+}
+
+export async function fetchElectrochemicalWindowByMaterial(params?: {
+  confidence_min?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/analytics/properties/electrochemical-window/by-material?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch electrochemical window by material");
+  return resp.json();
+}
+
+export async function fetchDomains() {
+  const resp = await fetch(`${BASE}/domains`);
+  if (!resp.ok) throw new Error("Failed to fetch domains");
+  return resp.json();
+}
+
+export async function fetchKnowledgeGraph(params?: {
+  domain_id?: string;
+  limit?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined) searchParams.set(k, String(v));
+    });
+  }
+  const resp = await fetch(`${BASE}/knowledge-graph?${searchParams}`);
+  if (!resp.ok) throw new Error("Failed to fetch knowledge graph");
+  return resp.json();
+}
+
+export async function createDomain(payload: {
+  id: string;
+  name: string;
+  description?: string;
+  color?: string;
+  sort_order?: number;
+  is_default?: boolean;
+}) {
+  const resp = await fetch(`${BASE}/domains`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const body = await resp.json();
+      detail = body.detail || "";
+    } catch {}
+    throw new Error(detail || "Failed to create domain");
+  }
+  return resp.json();
+}
+
+export async function updateDomain(domainId: string, payload: {
+  name?: string;
+  description?: string;
+  color?: string;
+  sort_order?: number;
+  is_default?: boolean;
+}) {
+  const resp = await fetch(`${BASE}/domains/${domainId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const body = await resp.json();
+      detail = body.detail || "";
+    } catch {}
+    throw new Error(detail || "Failed to update domain");
+  }
+  return resp.json();
+}
+
+export async function deleteDomain(domainId: string) {
+  const resp = await fetch(`${BASE}/domains/${domainId}`, { method: "DELETE" });
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const body = await resp.json();
+      detail = body.detail || "";
+    } catch {}
+    throw new Error(detail || "Failed to delete domain");
+  }
+  return resp.json();
+}
+
+export async function assignPaperDomain(paperId: string, domainId: string) {
+  const resp = await fetch(`${BASE}/papers/${paperId}/domain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain_id: domainId }),
+  });
+  if (!resp.ok) throw new Error("Failed to assign domain");
   return resp.json();
 }
 

@@ -25,11 +25,13 @@ class PaperListParams(BaseModel):
     year_from: Optional[int] = None
     year_to: Optional[int] = None
     tag: Optional[str] = None
+    domain_id: Optional[str] = None
 
 class ChatRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
     scope_paper_ids: list[str] = []
+    scope_domain_id: Optional[str] = None
     stream: bool = True
 
 class ChatEvent(BaseModel):
@@ -107,6 +109,72 @@ class MessageOut(BaseModel):
     content: str
     citations: Optional[dict] = None
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LibraryDomainOut(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: int = 0
+    is_default: bool = False
+    paper_count: int = 0
+    ingested_count: int = 0
+    processing_count: int = 0
+    failed_count: int = 0
+    latest_paper_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class LibraryDomainCreate(BaseModel):
+    id: str = Field(min_length=2, max_length=64, pattern="^[a-z0-9][a-z0-9-]*$")
+    name: str = Field(min_length=2, max_length=128)
+    description: Optional[str] = None
+    color: Optional[str] = Field(default=None, pattern="^#[0-9A-Fa-f]{6}$")
+    sort_order: int = 0
+    is_default: bool = False
+
+
+class LibraryDomainUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=128)
+    description: Optional[str] = None
+    color: Optional[str] = Field(default=None, pattern="^#[0-9A-Fa-f]{6}$")
+    sort_order: Optional[int] = None
+    is_default: Optional[bool] = None
+
+
+class PaperDomainAssignRequest(BaseModel):
+    domain_id: str = Field(min_length=2, max_length=64)
+
+
+class DownloadCreate(BaseModel):
+    identifier: str = Field(min_length=3, max_length=512)
+    strategy: str = Field(default="legal_only", pattern="^(legal_only|oa_first|fastest)$")
+
+
+class DownloadIngestRequest(BaseModel):
+    domain_id: str = Field(min_length=2, max_length=64)
+    auto_mine: bool = False
+
+
+class DownloadedPaperOut(BaseModel):
+    id: str
+    identifier: str
+    doi: Optional[str] = None
+    title: Optional[str] = None
+    source: Optional[str] = None
+    strategy: str = "legal_only"
+    file_path: Optional[str] = None
+    paper_id: Optional[str] = None
+    status: str
+    error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

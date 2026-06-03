@@ -3,9 +3,9 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, func
-from backend.models.database import get_db, Paper, PaperTag, Entity, EntitySchema, EntitySynonym, SolidElectrolyteRecord
+from backend.models.database import get_db, Paper, PaperTag, PaperDomainAssignment, Entity, EntitySchema, EntitySynonym, SolidElectrolyteRecord
 from backend.models.schemas import PaperOut, PaperDetailOut, PaperListParams
-from backend.services.ingestion import init_milvus, init_es
+from backend.services.ingestion import delete_paper_indexes, reindex_pdf
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["papers"])
@@ -21,6 +21,9 @@ async def list_papers(params: PaperListParams = Depends()):
             query = query.where(Paper.year >= params.year_from)
         if params.year_to is not None:
             query = query.where(Paper.year <= params.year_to)
+        if params.domain_id:
+            domain_sub = select(PaperDomainAssignment.paper_id).where(PaperDomainAssignment.domain_id == params.domain_id)
+            query = query.where(Paper.id.in_(domain_sub))
         if params.tag:
             tag_sub = select(PaperTag.paper_id).where(PaperTag.tag == params.tag)
             query = query.where(Paper.id.in_(tag_sub))
@@ -30,6 +33,8 @@ async def list_papers(params: PaperListParams = Depends()):
         count_query = select(func.count()).select_from(Paper)
         if params.tag:
             count_query = count_query.where(Paper.id.in_(tag_sub))
+        if params.domain_id:
+            count_query = count_query.where(Paper.id.in_(domain_sub))
         if params.keyword:
             count_query = count_query.where(Paper.title.ilike(f"%{params.keyword}%"))
         if params.year_from is not None:
@@ -87,6 +92,64 @@ async def cluster(
     from backend.services.classify_service import cluster_papers
     background_tasks.add_task(cluster_papers, n_clusters)
     return {"status": "clustering_started"}
+
+
+async def _reindex_paper_task(paper_id: str, file_path: str):
+    result = await reindex_pdf(file_path, paper_id)
+    async for db in get_db():
+        paper = await db.get(Paper, paper_id)
+        if paper:
+            doc_title = (result.get("title") or "").strip()
+            if doc_title and ".pdf" not in doc_title.lower():
+                paper.title = doc_title
+            paper.authors = result.get("authors")
+            paper.year = result.get("year")
+            paper.journal = result.get("journal")
+            paper.abstract = result.get("abstract")
+            paper.full_text = result.get("full_text")
+            paper.status = "ingested"
+        await db.commit()
+        break
+
+
+@router.post("/papers/reindex")
+async def reindex_papers(
+    background_tasks: BackgroundTasks,
+    domain_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    async for db in get_db():
+        query = select(Paper).where(Paper.file_path.isnot(None)).limit(limit)
+        if domain_id:
+            domain_sub = select(PaperDomainAssignment.paper_id).where(PaperDomainAssignment.domain_id == domain_id)
+            query = query.where(Paper.id.in_(domain_sub))
+        result = await db.execute(query)
+        papers = result.scalars().all()
+        count = 0
+        for paper in papers:
+            if paper.file_path and os.path.exists(paper.file_path):
+                paper.status = "processing"
+                background_tasks.add_task(_reindex_paper_task, paper.id, paper.file_path)
+                count += 1
+        await db.commit()
+        break
+    return {"status": "reindex_started", "count": count}
+
+
+@router.post("/papers/{paper_id}/reindex")
+async def reindex_single_paper(paper_id: str, background_tasks: BackgroundTasks):
+    async for db in get_db():
+        paper = await db.get(Paper, paper_id)
+        if not paper:
+            raise HTTPException(status_code=404, detail="Paper not found")
+        if not paper.file_path or not os.path.exists(paper.file_path):
+            raise HTTPException(status_code=400, detail="Paper file not found")
+        file_path = paper.file_path
+        paper.status = "processing"
+        await db.commit()
+        break
+    background_tasks.add_task(_reindex_paper_task, paper_id, file_path)
+    return {"paper_id": paper_id, "status": "reindex_started"}
 
 
 # ── Paper detail & delete (with {paper_id} path param) ──
@@ -153,15 +216,9 @@ async def delete_paper(paper_id: str):
 
     # Clean up Milvus, Elasticsearch, and file — best-effort, don't fail the request
     try:
-        init_milvus().delete(expr=f'paper_id == "{paper_id}"')
+        delete_paper_indexes(paper_id)
     except Exception as e:
-        logger.warning("Milvus delete failed for %s: %s", paper_id, e)
-
-    try:
-        init_es().delete_by_query(index="papers", body={"query": {"term": {"paper_id": paper_id}}}, refresh=True)
-        init_es().delete_by_query(index="paper_chunks", body={"query": {"term": {"paper_id": paper_id}}}, refresh=True)
-    except Exception as e:
-        logger.warning("ES delete failed for %s: %s", paper_id, e)
+        logger.warning("Index delete failed for %s: %s", paper_id, e)
 
     if file_path:
         try:
