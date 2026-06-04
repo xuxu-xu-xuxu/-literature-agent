@@ -29,6 +29,9 @@ test_inputs/
 # 文档规划
 docs/
 
+# 调试日志
+MEMORY_USAGE_LOG.md
+
 # OS
 .DS_Store
 Thumbs.db

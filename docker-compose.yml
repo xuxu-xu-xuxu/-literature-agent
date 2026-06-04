@@ -72,20 +72,21 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
+      - ./volumes/huggingface:/root/.cache/huggingface
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\""]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\""]
       interval: 30s
       timeout: 10s
       retries: 20
       start_period: 120s
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # GPU 配置：如果服务器有 NVIDIA GPU，取消下面注释
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
   postgres:
     image: postgres:16-alpine
@@ -131,7 +132,7 @@ services:
       - ./uploads:/app/uploads
       - ./downloads:/app/downloads
       - ./schemas:/app/schemas
-      - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
+      - ./volumes/huggingface:/root/.cache/huggingface
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health', timeout=5)\""]
       interval: 15s
