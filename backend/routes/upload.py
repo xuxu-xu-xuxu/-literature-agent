@@ -154,7 +154,18 @@ async def _process_paper(paper_id: str, file_path: str, auto_mine: bool = False)
     from backend.services.extract_service import run_extraction
     from backend.services.solid_electrolyte import extract_solid_electrolyte_records
 
-    result = await ingest_pdf(file_path)
+    try:
+        result = await ingest_pdf(file_path)
+    except Exception:
+        logger.exception("Failed to ingest uploaded paper %s from %s", paper_id, file_path)
+        async for db in get_db():
+            paper = await db.get(Paper, paper_id)
+            if paper:
+                paper.status = "failed"
+                await db.commit()
+            break
+        return
+
     async for db in get_db():
         paper = await db.get(Paper, paper_id)
         if paper:

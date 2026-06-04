@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Network, RefreshCw, Search } from "lucide-react";
 import { fetchDomains, fetchKnowledgeGraph } from "@/lib/api";
 
@@ -9,10 +9,12 @@ interface Domain {
   name: string;
 }
 
+type NodeType = "domain" | "topic" | "paper" | "material" | "method" | "problem" | "property";
+
 interface GraphNode {
   id: string;
   label: string;
-  type: "domain" | "paper" | "entity";
+  type: NodeType;
   size: number;
   domain_id?: string | null;
   paper_id?: string;
@@ -27,26 +29,50 @@ interface GraphEdge {
   weight: number;
 }
 
-interface SimNode extends GraphNode {
+interface PositionedNode extends GraphNode {
   x: number;
   y: number;
-  tx: number;
-  ty: number;
-  phase: number;
-  drift: number;
 }
 
-const nodeColors: Record<GraphNode["type"], string> = {
-  domain: "#f6c85f",
-  paper: "#58d5ff",
-  entity: "#c084fc",
+const viewBox = { width: 1120, height: 760 };
+const center = { x: viewBox.width / 2, y: viewBox.height / 2 };
+
+const nodeColors: Record<NodeType, string> = {
+  domain: "#f59e0b",
+  topic: "#2563eb",
+  paper: "#06b6d4",
+  material: "#8b5cf6",
+  method: "#10b981",
+  problem: "#ef4444",
+  property: "#f97316",
 };
 
-const nodeLabels: Record<GraphNode["type"], string> = {
+const nodeLabels: Record<NodeType, string> = {
   domain: "领域",
-  paper: "文献",
-  entity: "实体",
+  topic: "主题簇",
+  paper: "论文",
+  material: "材料",
+  method: "方法",
+  problem: "问题",
+  property: "性质",
 };
+
+const driftByType: Record<NodeType, { radius: number; speed: number }> = {
+  domain: { radius: 4, speed: 0.0006 },
+  topic: { radius: 9, speed: 0.0011 },
+  paper: { radius: 7, speed: 0.0014 },
+  material: { radius: 11, speed: 0.0012 },
+  method: { radius: 11, speed: 0.0011 },
+  problem: { radius: 13, speed: 0.0013 },
+  property: { radius: 10, speed: 0.00115 },
+};
+
+function polar(angle: number, radius: number) {
+  return {
+    x: center.x + Math.cos(angle) * radius,
+    y: center.y + Math.sin(angle) * radius,
+  };
+}
 
 function hashString(value: string) {
   let hash = 2166136261;
@@ -57,387 +83,128 @@ function hashString(value: string) {
   return Math.abs(hash);
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
+function shorten(label: string, max = 34) {
+  if (label.length <= max) return label;
+  return `${label.slice(0, max - 1)}…`;
 }
 
-function quadraticPoint(
-  source: { x: number; y: number },
-  control: { x: number; y: number },
-  target: { x: number; y: number },
-  t: number
-) {
-  const mt = 1 - t;
-  return {
-    x: mt * mt * source.x + 2 * mt * t * control.x + t * t * target.x,
-    y: mt * mt * source.y + 2 * mt * t * control.y + t * t * target.y,
-  };
-}
+function buildGraphLayout(nodes: GraphNode[], edges: GraphEdge[]) {
+  const domainNodes = nodes.filter((node) => node.type === "domain");
+  const topicNodes = nodes.filter((node) => node.type === "topic");
+  const paperNodes = nodes.filter((node) => node.type === "paper");
+  const signalNodes = nodes.filter((node) => !["domain", "topic", "paper"].includes(node.type));
 
-function edgeControlPoint(source: SimNode, target: SimNode, edgeId: string) {
-  const dx = target.x - source.x;
-  const dy = target.y - source.y;
-  const dist = Math.max(1, Math.hypot(dx, dy));
-  const bend = ((hashString(edgeId) % 120) - 60) * 0.42;
-  return {
-    x: (source.x + target.x) / 2 - (dy / dist) * bend,
-    y: (source.y + target.y) / 2 + (dx / dist) * bend,
-  };
-}
+  const positions = new Map<string, PositionedNode>();
 
-function selectDisplayEdges(edges: GraphEdge[]) {
-  const domainEdges = edges
-    .filter((edge) => edge.type === "domain_paper")
-    .sort((a, b) => b.weight - a.weight)
-    .slice(0, 42);
-  const entityEdges = edges
-    .filter((edge) => edge.type !== "domain_paper")
-    .sort((a, b) => b.weight - a.weight)
-    .slice(0, 58);
-  return [...domainEdges, ...entityEdges];
-}
-
-function buildMoleculeLayout(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-  width: number,
-  height: number,
-  previousNodes: SimNode[]
-) {
-  const center = { x: width / 2, y: height / 2 };
-  const minDim = Math.max(360, Math.min(width, height));
-  const margin = 48;
-  const previousById = new Map(previousNodes.map((node) => [node.id, node]));
-  const targets = new Map<string, { x: number; y: number }>();
-  const domainAnchors = new Map<string, { x: number; y: number }>();
-  const domains = nodes.filter((node) => node.type === "domain");
-  const papers = nodes.filter((node) => node.type === "paper");
-  const entities = nodes.filter((node) => node.type === "entity");
-
-  domains.forEach((node, index) => {
-    const count = Math.max(1, domains.length);
-    const angle = count === 1 ? -Math.PI / 2 : -Math.PI / 2 + (index / count) * Math.PI * 2;
-    const radiusX = count === 1 ? 0 : Math.min(width * 0.2, 230);
-    const radiusY = count === 1 ? 0 : Math.min(height * 0.15, 135);
-    const target = {
-      x: center.x + Math.cos(angle) * radiusX,
-      y: center.y + Math.sin(angle) * radiusY,
-    };
-    targets.set(node.id, target);
-    domainAnchors.set(node.domain_id || node.id.replace("domain:", ""), target);
+  domainNodes.forEach((node, index) => {
+    const angle = -Math.PI / 2 + (index / Math.max(1, domainNodes.length)) * Math.PI * 2;
+    const point = domainNodes.length === 1 ? center : polar(angle, 80);
+    positions.set(node.id, { ...node, ...point });
   });
 
-  const papersByDomain = new Map<string, GraphNode[]>();
-  papers.forEach((node) => {
+  const topicsByDomain = new Map<string, GraphNode[]>();
+  topicNodes.forEach((node) => {
     const key = node.domain_id || "unclassified";
-    papersByDomain.set(key, [...(papersByDomain.get(key) || []), node]);
+    topicsByDomain.set(key, [...(topicsByDomain.get(key) || []), node]);
   });
 
-  papersByDomain.forEach((domainPapers, domainId) => {
-    const anchor = domainAnchors.get(domainId) || center;
-    domainPapers.forEach((node, index) => {
-      const count = Math.max(1, domainPapers.length);
-      const ring = Math.floor(index / 22);
-      const angle =
-        (index / count) * Math.PI * 2 +
-        ((hashString(node.id) % 100) / 100) * 0.5 +
-        ring * 0.37;
-      const radius = minDim * (0.2 + ring * 0.075);
-      const jitter = ((hashString(`${node.id}:jitter`) % 100) - 50) * 0.55;
-      targets.set(node.id, {
-        x: anchor.x + Math.cos(angle) * (radius + jitter),
-        y: anchor.y + Math.sin(angle) * (radius * 0.72 + jitter * 0.45),
+  topicsByDomain.forEach((group, domainId) => {
+    const domainNode = positions.get(`domain:${domainId}`) || positions.get(domainId);
+    const anchor = domainNode || center;
+    group.forEach((node, index) => {
+      const angle = -Math.PI / 2 + (index / Math.max(1, group.length)) * Math.PI * 2;
+      const point = polar(angle, 185);
+      positions.set(node.id, {
+        ...node,
+        x: anchor.x + (point.x - center.x) * 0.72,
+        y: anchor.y + (point.y - center.y) * 0.72,
       });
     });
   });
 
-  entities.forEach((node, index) => {
-    const relatedPaperTargets = edges
-      .filter((edge) => edge.target === node.id || edge.source === node.id)
-      .map((edge) => targets.get(edge.source) || targets.get(edge.target))
-      .filter(Boolean) as Array<{ x: number; y: number }>;
+  const papersByTopic = new Map<string, GraphNode[]>();
+  edges
+    .filter((edge) => edge.type === "topic_paper")
+    .forEach((edge) => {
+      const paperNode = paperNodes.find((node) => node.id === edge.target);
+      if (!paperNode) return;
+      papersByTopic.set(edge.source, [...(papersByTopic.get(edge.source) || []), paperNode]);
+    });
 
-    if (relatedPaperTargets.length) {
-      const average = relatedPaperTargets.reduce(
-        (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }),
-        { x: 0, y: 0 }
-      );
-      average.x /= relatedPaperTargets.length;
-      average.y /= relatedPaperTargets.length;
-      const awayX = average.x - center.x;
-      const awayY = average.y - center.y;
-      const angle = Math.atan2(awayY, awayX) + ((hashString(node.id) % 80) - 40) / 260;
-      const distance = Math.max(minDim * 0.32, Math.hypot(awayX, awayY) * 1.14);
-      targets.set(node.id, {
-        x: center.x + Math.cos(angle) * distance,
-        y: center.y + Math.sin(angle) * distance * 0.84,
+  papersByTopic.forEach((group, topicId) => {
+    const anchor = positions.get(topicId) || center;
+    group.forEach((node, index) => {
+      const angle = -Math.PI / 2 + (index / Math.max(1, group.length)) * Math.PI * 2;
+      const radius = 88 + Math.floor(index / 8) * 34;
+      const point = polar(angle, radius);
+      positions.set(node.id, {
+        ...node,
+        x: anchor.x + (point.x - center.x),
+        y: anchor.y + (point.y - center.y),
       });
-      return;
+    });
+  });
+
+  const signalBuckets: Record<string, GraphNode[]> = {
+    material: [],
+    method: [],
+    problem: [],
+    property: [],
+  };
+  signalNodes.forEach((node) => {
+    signalBuckets[node.type].push(node);
+  });
+
+  const sectors: Record<string, [number, number]> = {
+    problem: [-Math.PI + 0.25, -Math.PI / 2 - 0.2],
+    method: [-Math.PI / 2 + 0.1, -0.2],
+    material: [0.15, Math.PI / 2 - 0.1],
+    property: [Math.PI / 2 + 0.2, Math.PI - 0.25],
+  };
+
+  Object.entries(signalBuckets).forEach(([type, group]) => {
+    const [start, end] = sectors[type];
+    group.forEach((node, index) => {
+      const count = Math.max(1, group.length);
+      const angle = start + ((index + 0.5) / count) * (end - start);
+      const radius = 305 + (index % 3) * 22;
+      const point = polar(angle, radius);
+      positions.set(node.id, { ...node, ...point });
+    });
+  });
+
+  nodes.forEach((node) => {
+    if (!positions.has(node.id)) {
+      positions.set(node.id, { ...node, ...center });
     }
-
-    const angle = (index / Math.max(1, entities.length)) * Math.PI * 2;
-    targets.set(node.id, {
-      x: center.x + Math.cos(angle) * minDim * 0.38,
-      y: center.y + Math.sin(angle) * minDim * 0.3,
-    });
   });
 
+  return Array.from(positions.values());
+}
+
+function animateNodes(nodes: PositionedNode[], tick: number) {
   return nodes.map((node) => {
-    const previous = previousById.get(node.id);
-    const target = targets.get(node.id) || center;
-    const phase = (hashString(node.id) % 628) / 100;
-    const drift = node.type === "domain" ? 5 : node.type === "paper" ? 9 : 13;
+    const drift = driftByType[node.type];
+    const phase = hashString(node.id) * 0.0002;
+    const secondary = hashString(`${node.id}:secondary`) * 0.00017;
     return {
       ...node,
-      x: previous?.x ?? clamp(target.x, margin, width - margin),
-      y: previous?.y ?? clamp(target.y, margin, height - margin),
-      tx: clamp(target.x, margin, width - margin),
-      ty: clamp(target.y, margin, height - margin),
-      phase,
-      drift,
+      x: node.x + Math.cos(tick * drift.speed + phase) * drift.radius,
+      y: node.y + Math.sin(tick * (drift.speed * 0.92) + secondary) * drift.radius,
     };
   });
-}
-
-function GraphCanvas({
-  nodes,
-  edges,
-  selectedId,
-  onSelect,
-}: {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  selectedId: string | null;
-  onSelect: (node: GraphNode | null) => void;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const simNodesRef = useRef<SimNode[]>([]);
-  const edgesRef = useRef<GraphEdge[]>([]);
-  const hoverRef = useRef<string | null>(null);
-  const draggingRef = useRef<string | null>(null);
-  const pointerRef = useRef({ x: 0, y: 0 });
-  const selectedRef = useRef<string | null>(selectedId);
-  const displayEdges = useMemo(() => selectDisplayEdges(edges), [edges]);
-
-  useEffect(() => {
-    selectedRef.current = selectedId;
-  }, [selectedId]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const width = canvas?.clientWidth || 900;
-    const height = canvas?.clientHeight || 620;
-    simNodesRef.current = buildMoleculeLayout(nodes, displayEdges, width, height, simNodesRef.current);
-    edgesRef.current = displayEdges;
-  }, [nodes, displayEdges]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let frame = 0;
-    let raf = 0;
-    let lastWidth = 0;
-    let lastHeight = 0;
-
-    const resize = () => {
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      const nextWidth = Math.max(1, Math.floor(rect.width));
-      const nextHeight = Math.max(1, Math.floor(rect.height));
-      canvas.width = Math.floor(nextWidth * dpr);
-      canvas.height = Math.floor(nextHeight * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if (nextWidth !== lastWidth || nextHeight !== lastHeight) {
-        simNodesRef.current = buildMoleculeLayout(nodes, displayEdges, nextWidth, nextHeight, simNodesRef.current);
-        lastWidth = nextWidth;
-        lastHeight = nextHeight;
-      }
-    };
-
-    const drawBackground = (width: number, height: number) => {
-      const gradient = ctx.createLinearGradient(0, 0, width, height);
-      gradient.addColorStop(0, "#05070b");
-      gradient.addColorStop(0.5, "#09111e");
-      gradient.addColorStop(1, "#070812");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, width, height);
-
-      ctx.save();
-      ctx.globalAlpha = 0.12;
-      ctx.strokeStyle = "#9de7ff";
-      ctx.lineWidth = 1;
-      for (let x = (frame * 0.08) % 54; x < width; x += 54) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x - height * 0.35, height);
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      const scanY = (frame * 0.18) % height;
-      ctx.save();
-      ctx.globalAlpha = 0.1;
-      ctx.strokeStyle = "#58d5ff";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, scanY);
-      ctx.lineTo(width, scanY);
-      ctx.stroke();
-      ctx.restore();
-    };
-
-    const step = () => {
-      resize();
-      frame += 1;
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-      const simNodes = simNodesRef.current;
-      const byId = new Map(simNodes.map((node) => [node.id, node]));
-      const selectedNodeId = selectedRef.current;
-
-      for (const node of simNodes) {
-        const slowTime = frame * 0.006;
-        const targetX =
-          node.tx +
-          Math.sin(slowTime + node.phase) * node.drift +
-          Math.sin(frame * 0.0022 + node.phase * 1.7) * node.drift * 0.45;
-        const targetY =
-          node.ty +
-          Math.cos(slowTime * 0.84 + node.phase) * node.drift +
-          Math.cos(frame * 0.0028 + node.phase * 1.3) * node.drift * 0.38;
-
-        if (draggingRef.current === node.id) {
-          node.x += (pointerRef.current.x - node.x) * 0.24;
-          node.y += (pointerRef.current.y - node.y) * 0.24;
-        } else {
-          node.x += (targetX - node.x) * 0.035;
-          node.y += (targetY - node.y) * 0.035;
-        }
-      }
-
-      drawBackground(width, height);
-
-      edgesRef.current.forEach((edge, index) => {
-        const source = byId.get(edge.source);
-        const target = byId.get(edge.target);
-        if (!source || !target) return;
-        const active = Boolean(selectedNodeId && (source.id === selectedNodeId || target.id === selectedNodeId));
-        const color = edge.type === "domain_paper" ? "#f6c85f" : "#58d5ff";
-        const control = edgeControlPoint(source, target, edge.id);
-
-        ctx.save();
-        ctx.globalAlpha = active ? 0.62 : edge.type === "domain_paper" ? 0.18 : 0.13;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = active ? 1.6 : 0.7;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = active ? 14 : 4;
-        ctx.beginPath();
-        ctx.moveTo(source.x, source.y);
-        ctx.quadraticCurveTo(control.x, control.y, target.x, target.y);
-        ctx.stroke();
-        ctx.restore();
-
-        if (index % 3 === 0 || active) {
-          const t = (frame * 0.0019 + (hashString(edge.id) % 1000) / 1000) % 1;
-          const point = quadraticPoint(source, control, target, t);
-          ctx.save();
-          ctx.globalAlpha = active ? 0.86 : 0.36;
-          ctx.fillStyle = color;
-          ctx.shadowColor = color;
-          ctx.shadowBlur = active ? 13 : 8;
-          ctx.beginPath();
-          ctx.arc(point.x, point.y, active ? 2.4 : 1.6, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
-        }
-      });
-
-      for (const node of simNodes) {
-        const color = nodeColors[node.type];
-        const active = node.id === selectedNodeId || node.id === hoverRef.current;
-        const pulse = 1 + Math.sin(frame * 0.018 + node.phase) * 0.06;
-        const radius = node.size * (active ? 1.32 : pulse);
-
-        ctx.save();
-        ctx.globalAlpha = node.type === "entity" ? 0.88 : 0.96;
-        ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = active ? 26 : node.type === "domain" ? 18 : 12;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-
-        if (node.type === "domain" || active) {
-          ctx.save();
-          ctx.font = active ? "600 12px sans-serif" : "500 11px sans-serif";
-          ctx.fillStyle = active ? "#ffffff" : "#dbeafe";
-          ctx.shadowColor = "#000000";
-          ctx.shadowBlur = 8;
-          ctx.fillText(node.label, node.x + radius + 8, node.y + 4);
-          ctx.restore();
-        }
-      }
-
-      raf = requestAnimationFrame(step);
-    };
-
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [nodes, displayEdges]);
-
-  const findNode = (clientX: number, clientY: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    pointerRef.current = { x, y };
-    let found: SimNode | null = null;
-    for (const node of simNodesRef.current) {
-      if (Math.hypot(node.x - x, node.y - y) <= node.size + 10) {
-        found = node;
-      }
-    }
-    return found;
-  };
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="h-full w-full cursor-crosshair"
-      onMouseMove={(event) => {
-        const node = findNode(event.clientX, event.clientY);
-        hoverRef.current = node?.id || null;
-      }}
-      onMouseDown={(event) => {
-        const node = findNode(event.clientX, event.clientY);
-        draggingRef.current = node?.id || null;
-        if (node) onSelect(node);
-      }}
-      onMouseUp={() => {
-        draggingRef.current = null;
-      }}
-      onMouseLeave={() => {
-        hoverRef.current = null;
-        draggingRef.current = null;
-      }}
-    />
-  );
 }
 
 export default function GraphPage() {
   const [domains, setDomains] = useState<Domain[]>([]);
   const [domainId, setDomainId] = useState("");
   const [query, setQuery] = useState("");
-  const [limit, setLimit] = useState(70);
+  const [limit, setLimit] = useState(90);
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [loading, setLoading] = useState(false);
+  const [tick, setTick] = useState(0);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -462,25 +229,75 @@ export default function GraphPage() {
     loadGraph();
   }, [loadGraph]);
 
-  const filteredNodes = useMemo(() => {
+  useEffect(() => {
+    const onFocus = () => {
+      loadGraph();
+    };
+    window.addEventListener("focus", onFocus);
+    const timer = window.setInterval(() => {
+      loadGraph();
+    }, 15000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(timer);
+    };
+  }, [loadGraph]);
+
+  useEffect(() => {
+    let frame = 0;
+    let raf = 0;
+    const loop = () => {
+      frame += 1;
+      setTick(frame);
+      raf = window.requestAnimationFrame(loop);
+    };
+    raf = window.requestAnimationFrame(loop);
+    return () => window.cancelAnimationFrame(raf);
+  }, []);
+
+  const visibleNodes = useMemo(() => {
     if (!query.trim()) return nodes;
     const term = query.trim().toLowerCase();
     return nodes.filter((node) => node.label.toLowerCase().includes(term));
   }, [nodes, query]);
 
-  const visibleNodeIds = useMemo(() => new Set(filteredNodes.map((node) => node.id)), [filteredNodes]);
-  const filteredEdges = useMemo(
-    () => edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)),
-    [edges, visibleNodeIds]
+  const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
+  const visibleEdges = useMemo(
+    () => edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)),
+    [edges, visibleIds]
   );
 
+  const positionedNodes = useMemo(() => buildGraphLayout(visibleNodes, visibleEdges), [visibleNodes, visibleEdges]);
+  const animatedNodes = useMemo(() => animateNodes(positionedNodes, tick), [positionedNodes, tick]);
+  const nodeMap = useMemo(() => new Map(animatedNodes.map((node) => [node.id, node])), [animatedNodes]);
+
   const stats = useMemo(() => {
-    return {
-      domain: filteredNodes.filter((node) => node.type === "domain").length,
-      paper: filteredNodes.filter((node) => node.type === "paper").length,
-      entity: filteredNodes.filter((node) => node.type === "entity").length,
+    const counts: Record<NodeType, number> = {
+      domain: 0,
+      topic: 0,
+      paper: 0,
+      material: 0,
+      method: 0,
+      problem: 0,
+      property: 0,
     };
-  }, [filteredNodes]);
+    visibleNodes.forEach((node) => {
+      counts[node.type] += 1;
+    });
+    return counts;
+  }, [visibleNodes]);
+
+  const connected = useMemo(() => {
+    if (!selectedNode) return new Set<string>();
+    const ids = new Set<string>([selectedNode.id]);
+    visibleEdges.forEach((edge) => {
+      if (edge.source === selectedNode.id || edge.target === selectedNode.id) {
+        ids.add(edge.source);
+        ids.add(edge.target);
+      }
+    });
+    return ids;
+  }, [selectedNode, visibleEdges]);
 
   return (
     <div className="h-full overflow-hidden bg-[#05070b] text-white">
@@ -493,8 +310,10 @@ export default function GraphPage() {
                   <Network className="h-5 w-5" />
                 </div>
                 <div>
-                  <h1 className="font-heading text-xl text-white">知识图谱</h1>
-                  <p className="text-xs text-cyan-100/60">领域、文献和核心实体的缓慢流动分子网络</p>
+                  <h1 className="font-heading text-xl text-white">主题图谱</h1>
+                  <p className="text-xs text-cyan-100/60">
+                    从论文主题簇出发，连接问题、方法、材料与关键性质。
+                  </p>
                 </div>
               </div>
 
@@ -525,9 +344,9 @@ export default function GraphPage() {
                   onChange={(event) => setLimit(Number(event.target.value))}
                   className="h-9 rounded-md border border-white/10 bg-[#0d1220] px-3 text-sm text-white focus:border-cyan-300/70 focus:outline-none"
                 >
-                  <option value={50}>50 节点</option>
                   <option value={70}>70 节点</option>
-                  <option value={110}>110 节点</option>
+                  <option value={90}>90 节点</option>
+                  <option value={120}>120 节点</option>
                 </select>
                 <button
                   onClick={loadGraph}
@@ -542,22 +361,85 @@ export default function GraphPage() {
           </div>
 
           <div className="relative min-h-0 flex-1">
-            <GraphCanvas
-              nodes={filteredNodes}
-              edges={filteredEdges}
-              selectedId={selectedNode?.id || null}
-              onSelect={setSelectedNode}
-            />
+            <svg viewBox={`0 0 ${viewBox.width} ${viewBox.height}`} className="h-full w-full">
+              <defs>
+                <radialGradient id="graphGlow" cx="50%" cy="50%" r="55%">
+                  <stop offset="0%" stopColor="rgba(56,189,248,0.18)" />
+                  <stop offset="100%" stopColor="rgba(5,7,11,0)" />
+                </radialGradient>
+              </defs>
+              <rect width={viewBox.width} height={viewBox.height} fill="#05070b" />
+              <circle cx={center.x} cy={center.y} r="320" fill="url(#graphGlow)" />
+
+              {visibleEdges.map((edge, index) => {
+                const source = nodeMap.get(edge.source);
+                const target = nodeMap.get(edge.target);
+                if (!source || !target) return null;
+                const isActive = !selectedNode || connected.has(edge.source) || connected.has(edge.target);
+                const shimmer = 0.22 + ((Math.sin(tick * 0.03 + index * 0.8) + 1) / 2) * 0.18;
+                return (
+                  <line
+                    key={edge.id}
+                    x1={source.x}
+                    y1={source.y}
+                    x2={target.x}
+                    y2={target.y}
+                    stroke={edge.type === "topic_paper" ? "#38bdf8" : "#94a3b8"}
+                    strokeOpacity={isActive ? shimmer : 0.08}
+                    strokeWidth={edge.type === "topic_paper" ? 1.7 : 1.15}
+                  />
+                );
+              })}
+
+              {animatedNodes.map((node) => {
+                const active = !selectedNode || connected.has(node.id);
+                const baseRadius = Math.max(8, Math.min(24, node.size));
+                const pulse = 1 + Math.sin(tick * 0.05 + hashString(node.id) * 0.0003) * 0.08;
+                const radius = baseRadius * pulse;
+                return (
+                  <g
+                    key={node.id}
+                    transform={`translate(${node.x}, ${node.y})`}
+                    onClick={() => setSelectedNode(node)}
+                    className="cursor-pointer"
+                  >
+                    <circle
+                      r={radius + 8}
+                      fill={nodeColors[node.type]}
+                      fillOpacity={active ? 0.1 : 0.03}
+                    />
+                    <circle
+                      r={radius}
+                      fill={nodeColors[node.type]}
+                      fillOpacity={active ? 0.94 : 0.3}
+                      stroke={selectedNode?.id === node.id ? "#ffffff" : "rgba(255,255,255,0.16)"}
+                      strokeWidth={selectedNode?.id === node.id ? 2.5 : 1}
+                    />
+                    <text
+                      y={radius + 16}
+                      textAnchor="middle"
+                      fill={active ? "#e2e8f0" : "rgba(226,232,240,0.35)"}
+                      fontSize={11}
+                    >
+                      {shorten(node.label, node.type === "paper" ? 28 : 20)}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+
             <div className="pointer-events-none absolute left-5 top-5 flex flex-wrap gap-3 text-xs text-cyan-100/70">
-              <span>领域 {stats.domain}</span>
-              <span>文献 {stats.paper}</span>
-              <span>实体 {stats.entity}</span>
-              <span>连接 {filteredEdges.length}</span>
+              <span>主题簇 {stats.topic}</span>
+              <span>论文 {stats.paper}</span>
+              <span>问题 {stats.problem}</span>
+              <span>方法 {stats.method}</span>
+              <span>材料 {stats.material}</span>
+              <span>性质 {stats.property}</span>
             </div>
           </div>
         </div>
 
-        <aside className="w-72 shrink-0 border-l border-white/10 bg-black/40 p-5 backdrop-blur">
+        <aside className="w-80 shrink-0 border-l border-white/10 bg-black/40 p-5 backdrop-blur">
           <h2 className="text-sm font-semibold text-cyan-100">节点信息</h2>
           {selectedNode ? (
             <div className="mt-4 space-y-4">
@@ -567,18 +449,19 @@ export default function GraphPage() {
                 </div>
                 <div className="mt-2 text-base font-semibold leading-6 text-white">{selectedNode.label}</div>
               </div>
-              <div className="space-y-2 text-xs text-cyan-100/60">
+              <div className="space-y-2 text-xs text-cyan-100/65">
                 <div>ID: {selectedNode.id}</div>
                 {selectedNode.domain_id && <div>领域: {selectedNode.domain_id}</div>}
-                {selectedNode.paper_id && <div>文献 ID: {selectedNode.paper_id}</div>}
+                {selectedNode.paper_id && <div>论文 ID: {selectedNode.paper_id}</div>}
                 {selectedNode.meta?.year && <div>年份: {selectedNode.meta.year}</div>}
                 {selectedNode.meta?.journal && <div>期刊: {selectedNode.meta.journal}</div>}
-                {selectedNode.meta?.count && <div>实体出现: {selectedNode.meta.count}</div>}
+                {selectedNode.meta?.paper_count && <div>主题内论文: {selectedNode.meta.paper_count}</div>}
+                {selectedNode.meta?.count && <div>信号强度: {selectedNode.meta.count}</div>}
               </div>
             </div>
           ) : (
-            <div className="mt-4 text-sm leading-6 text-cyan-100/50">
-              点击或拖动图中的节点查看详情。领域节点偏金色，文献节点偏蓝色，实体节点偏紫色。
+            <div className="mt-4 text-sm leading-6 text-cyan-100/55">
+              先从主题簇节点看全局，再顺着问题、方法、材料和性质节点定位相关文献。
             </div>
           )}
         </aside>

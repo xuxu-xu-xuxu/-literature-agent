@@ -111,10 +111,9 @@ export async function triggerExtraction(paperId: string) {
 }
 
 export async function fetchEntities(params?: {
-  entity_type?: string;
-  paper_id?: string;
-  page?: number;
-  page_size?: number;
+  domain_id?: string;
+  topic_limit?: number;
+  papers_per_topic?: number;
 }) {
   const searchParams = new URLSearchParams();
   if (params) {
