@@ -1,6 +1,17 @@
 import { useState, useCallback, useEffect } from "react";
 import { useAuth } from "@/contexts/auth";
 
+function randomUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback for non-HTTPS environments (e.g. internal IP access)
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 interface Citation {
   paper_id: string;
   title: string;
@@ -57,8 +68,8 @@ export function useChat(conversationId: string | null) {
       const effectiveConvoId = overrideConvoId || conversationId;
       if (!effectiveConvoId || !token) return;
 
-      const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: query };
-      const assistantMsg: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
+      const userMsg: Message = { id: randomUUID(), role: "user", content: query };
+      const assistantMsg: Message = { id: randomUUID(), role: "assistant", content: "" };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
 

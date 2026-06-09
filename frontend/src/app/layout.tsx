@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Literature Agent",
+  title: "MatBrain Agent",
   description: "材料科学文献智能助手",
 };
 

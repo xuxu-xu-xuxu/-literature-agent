@@ -33,7 +33,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <BookOpen className="w-10 h-10 text-[#1a2744] mx-auto mb-3" />
-          <h1 className="text-xl font-heading text-[#1a2744]">Literature Agent</h1>
+          <h1 className="text-xl font-heading text-[#1a2744]">MatBrain Agent</h1>
           <p className="text-sm text-gray-500 mt-1">材料科学文献智能助手</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">

@@ -88,3 +88,14 @@ def save_upload(file_content: bytes, filename: str, upload_dir: str) -> str:
     with open(file_path, "wb") as f:
         f.write(file_content)
     return file_path
+
+
+async def save_upload_stream(upload_file, upload_dir: str) -> str:
+    """Stream upload to disk in 4MB chunks — no memory bloat for large files."""
+    os.makedirs(upload_dir, exist_ok=True)
+    original_name = upload_file.filename or "upload"
+    file_path = os.path.join(upload_dir, f"{uuid.uuid4().hex}_{original_name}")
+    with open(file_path, "wb") as f:
+        while chunk := await upload_file.read(4 * 1024 * 1024):
+            f.write(chunk)
+    return file_path

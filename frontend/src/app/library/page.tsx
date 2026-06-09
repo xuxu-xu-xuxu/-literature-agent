@@ -5,6 +5,7 @@ import { Archive, Loader2, Pause, Search, Trash2, Upload, X } from "lucide-react
 import {
   cancelIngestionJob,
   deletePaper,
+  deletePapers,
   fetchIngestionJobs,
   fetchPapers,
   pauseIngestionJob,
@@ -44,6 +45,8 @@ export default function LibraryPage() {
   const [page, setPage] = useState(1);
   const [totalPapers, setTotalPapers] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "error" | "info" } | null>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
@@ -169,12 +172,51 @@ export default function LibraryPage() {
   };
 
   const handleDelete = async (paperId: string) => {
+    if (!window.confirm("确定要删除这篇文献吗？")) return;
     try {
+      setDeleting(true);
       await deletePaper(paperId);
-      await loadPapers();
-      await loadDomains();
+      setMessage({ text: "已删除 1 篇文献", type: "info" });
     } catch (error: unknown) {
       setMessage({ text: error instanceof Error ? error.message : "删除失败", type: "error" });
+    } finally {
+      setDeleting(false);
+      await loadPapers();
+      await loadDomains();
+    }
+  };
+
+  const toggleSelect = (paperId: string) => {
+    setSelectedPapers((prev) => {
+      const next = new Set(prev);
+      if (next.has(paperId)) next.delete(paperId);
+      else next.add(paperId);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    if (selectedPapers.size === papers.length) {
+      setSelectedPapers(new Set());
+    } else {
+      setSelectedPapers(new Set(papers.map((p) => p.id)));
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedPapers.size === 0) return;
+    if (!window.confirm(`确定要删除选中的 ${selectedPapers.size} 篇文献吗？此操作不可撤销。`)) return;
+    setDeleting(true);
+    try {
+      const result = await deletePapers(Array.from(selectedPapers));
+      setSelectedPapers(new Set());
+      setMessage({ text: `已删除 ${result.deleted} 篇文献`, type: "info" });
+    } catch (error: unknown) {
+      setMessage({ text: error instanceof Error ? error.message : "批量删除失败", type: "error" });
+    } finally {
+      setDeleting(false);
+      await loadPapers();
+      await loadDomains();
     }
   };
 
@@ -376,7 +418,43 @@ export default function LibraryPage() {
           </div>
 
           <div className="mt-4 overflow-hidden rounded-lg border border-[#e5e7eb]">
-            <div className="grid grid-cols-[1fr_140px_80px_90px] gap-4 bg-[#fafafa] px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-gray-500">
+            {/* Batch delete toolbar */}
+            {selectedPapers.size > 0 && (
+              <div className="flex items-center gap-3 bg-red-50 border-b border-red-200 px-5 py-2.5">
+                <span className="text-sm text-red-700 font-medium">
+                  已选 {selectedPapers.size} 篇
+                </span>
+                <button
+                  onClick={handleBatchDelete}
+                  disabled={deleting}
+                  className="inline-flex items-center gap-1.5 rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
+                >
+                  {deleting ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3 w-3" />
+                  )}
+                  {deleting ? "删除中..." : "批量删除"}
+                </button>
+                <button
+                  onClick={() => setSelectedPapers(new Set())}
+                  disabled={deleting}
+                  className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                >
+                  取消选择
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-[36px_1fr_140px_80px_90px] gap-4 bg-[#fafafa] px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-gray-500">
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={papers.length > 0 && selectedPapers.size === papers.length}
+                  onChange={selectAll}
+                  className="h-3.5 w-3.5 rounded border-gray-300"
+                />
+              </div>
               <span>标题</span>
               <span>作者</span>
               <span>年份</span>
@@ -392,8 +470,17 @@ export default function LibraryPage() {
             {papers.map((paper) => (
               <div
                 key={paper.id}
-                className="group grid grid-cols-[1fr_140px_80px_90px] gap-4 border-b border-[#f3f4f6] px-5 py-3 text-sm text-gray-700 last:border-b-0 hover:bg-[#fafafa]"
+                className="group grid grid-cols-[36px_1fr_140px_80px_90px] gap-4 border-b border-[#f3f4f6] px-5 py-3 text-sm text-gray-700 last:border-b-0 hover:bg-[#fafafa]"
               >
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedPapers.has(paper.id)}
+                    onChange={() => toggleSelect(paper.id)}
+                    disabled={deleting}
+                    className="h-3.5 w-3.5 rounded border-gray-300"
+                  />
+                </div>
                 <span className="truncate font-medium">{paper.title}</span>
                 <span className="truncate text-gray-500">{paper.authors || "未知"}</span>
                 <span className="text-gray-500">{paper.year || "-"}</span>
@@ -411,7 +498,8 @@ export default function LibraryPage() {
                   </span>
                   <button
                     onClick={() => handleDelete(paper.id)}
-                    className="rounded p-1 text-gray-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                    disabled={deleting}
+                    className="rounded p-1 text-gray-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:opacity-30"
                     aria-label="删除文献"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

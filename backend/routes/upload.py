@@ -7,7 +7,7 @@ from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Form, HTTPExce
 from sqlalchemy import select
 
 from backend.models.database import get_db, IngestionJob, Paper, PaperDomainAssignment, PaperProcessingTask, LibraryDomain
-from backend.services.pdf_service import save_upload, compute_paper_id
+from backend.services.pdf_service import save_upload, save_upload_stream, compute_paper_id
 from backend.services.ingestion import ingest_pdf
 from backend.config import get_settings
 
@@ -24,8 +24,7 @@ async def upload_pdf(
     domain_id: str = Form(default="unclassified"),
 ):
     settings = get_settings()
-    content = await file.read()
-    file_path = save_upload(content, file.filename, settings.upload_dir)
+    file_path = await save_upload_stream(file, settings.upload_dir)
     paper_id = compute_paper_id(file_path)
 
     async for db in get_db():
@@ -57,7 +56,7 @@ async def upload_batch(
     job_id = uuid.uuid4().hex
     job_dir = os.path.join(settings.upload_dir, "jobs", job_id)
     os.makedirs(job_dir, exist_ok=True)
-    zip_path = save_upload(await file.read(), file.filename, job_dir)
+    zip_path = await save_upload_stream(file, job_dir)
 
     # Create job record immediately, extraction happens in background
     async for db in get_db():

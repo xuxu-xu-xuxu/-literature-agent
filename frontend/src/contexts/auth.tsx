@@ -17,7 +17,7 @@ interface AuthContext {
 }
 
 const AuthCtx = createContext<AuthContext | null>(null);
-const TOKEN_KEY = "literature_agent_token";
+const TOKEN_KEY = "matbrain_agent_token";
 
 function setToken(token: string | null) {
   if (typeof window === "undefined") return;

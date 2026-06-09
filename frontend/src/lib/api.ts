@@ -139,6 +139,23 @@ export async function deletePaper(paperId: string) {
   return resp.json();
 }
 
+export async function deletePapers(paperIds: string[]) {
+  const resp = await fetch(`${BASE}/papers/batch-delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paper_ids: paperIds }),
+  });
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const body = await resp.json();
+      detail = body.detail || "";
+    } catch {}
+    throw new Error(detail || `批量删除失败 (HTTP ${resp.status})`);
+  }
+  return resp.json();
+}
+
 export async function runSchemaConvergence() {
   const resp = await fetch(`${BASE}/entities/converge`, { method: "POST" });
   if (!resp.ok) throw new Error("Convergence failed");

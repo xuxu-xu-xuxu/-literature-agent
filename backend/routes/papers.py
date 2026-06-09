@@ -2,7 +2,8 @@ import os
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from pydantic import BaseModel
+from sqlalchemy import select, func, delete
 from backend.models.database import get_db, Paper, PaperTag, PaperDomainAssignment, Entity, EntitySchema, EntitySynonym, SolidElectrolyteRecord
 from backend.models.schemas import PaperOut, PaperDetailOut, PaperListParams
 from backend.services.ingestion import delete_paper_indexes, reindex_pdf
@@ -228,3 +229,81 @@ async def delete_paper(paper_id: str):
             logger.warning("File delete failed for %s: %s", file_path, e)
 
     return {"deleted": paper_id}
+
+
+class BatchDeleteRequest(BaseModel):
+    paper_ids: list[str]
+
+
+@router.post("/papers/batch-delete")
+async def batch_delete_papers(req: BatchDeleteRequest):
+    """Batch delete multiple papers efficiently.
+
+    Uses bulk SQL DELETEs instead of N+1 row-by-row operations,
+    and runs synonym cleanup only once at the end.
+    """
+    paper_ids = req.paper_ids
+    if not paper_ids:
+        return {"deleted": 0}
+
+    file_paths: list[str] = []
+    deleted_count = 0
+
+    async for db in get_db():
+        # ── 1. Bulk-delete related records ──
+        await db.execute(
+            delete(PaperTag).where(PaperTag.paper_id.in_(paper_ids))
+        )
+        await db.execute(
+            delete(EntitySchema).where(EntitySchema.paper_id.in_(paper_ids))
+        )
+        await db.execute(
+            delete(Entity).where(Entity.paper_id.in_(paper_ids))
+        )
+        await db.execute(
+            delete(SolidElectrolyteRecord).where(SolidElectrolyteRecord.paper_id.in_(paper_ids))
+        )
+
+        # ── 2. Collect file paths before deleting papers ──
+        result = await db.execute(
+            select(Paper.file_path).where(Paper.id.in_(paper_ids))
+        )
+        file_paths = [row[0] for row in result.fetchall() if row[0]]
+
+        # ── 3. Bulk-delete papers ──
+        result = await db.execute(
+            delete(Paper).where(Paper.id.in_(paper_ids))
+        )
+        deleted_count = result.rowcount
+
+        # ── 4. Synonym cleanup (once only) ──
+        remaining_types = (await db.execute(select(Entity.entity_type).distinct())).scalars().all()
+        remaining_types_set = set(remaining_types)
+        if remaining_types_set:
+            await db.execute(
+                delete(EntitySynonym).where(
+                    EntitySynonym.canonical.not_in(remaining_types_set) |
+                    EntitySynonym.variant.not_in(remaining_types_set)
+                )
+            )
+        else:
+            await db.execute(delete(EntitySynonym))
+
+        await db.commit()
+        break
+
+    # ── 5. Delete Milvus + ES indexes and files (best-effort) ──
+    for paper_id in paper_ids:
+        try:
+            delete_paper_indexes(paper_id)
+        except Exception as e:
+            logger.warning("Index delete failed for %s: %s", paper_id, e)
+
+    for file_path in file_paths:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            logger.warning("File delete failed for %s: %s", file_path, e)
+
+    return {"deleted": deleted_count}
